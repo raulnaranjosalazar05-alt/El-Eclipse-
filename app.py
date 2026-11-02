@@ -1,13 +1,16 @@
 import os
-from http.server import BaseHTTPRequestHandler, HTTPServer
-import threading
+from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 # --- CONFIGURACIÓN ---
 TOKEN = os.environ.get("TOKEN")
-URL_RENDER = os.environ.get("RENDER_EXTERNAL_URL") # Render la da automáticamente
+URL_RENDER = os.environ.get("RENDER_EXTERNAL_URL")
 PORT = int(os.environ.get("PORT", 8080))
+
+# Creamos la app web y el bot
+app_web = Flask(__name__)
+app_bot = Application.builder().token(TOKEN).build()
 
 # --- COMANDOS DEL BOT ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -18,49 +21,27 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-# --- SERVIDOR WEB (Para que Render no se queje) ---
-class WebServer(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"El Sistema esta vivo.")
+app_bot.add_handler(CommandHandler("start", start))
 
-    def do_POST(self):
-        # Telegram enviará los mensajes aquí
-        content_length = int(self.headers['Content-Length'])
-        post_data = self.rfile.read(content_length)
-        
-        # Procesar el mensaje con el bot
-        import json
-        update = Update.de_json(json.loads(post_data.decode('utf-8')), app.bot)
-        app.update_queue.put_nowait(update)
-        
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"OK")
+# --- RUTAS WEB ---
+@app_web.route("/")
+def home():
+    return "El Sistema esta vivo.", 200
 
-# --- INICIO DEL BOT ---
-app = Application.builder().token(TOKEN).build()
-app.add_handler(CommandHandler("start", start))
+@app_web.route(f"/{TOKEN}", methods=["POST"])
+def webhook():
+    # Telegram envía el mensaje aquí
+    update = Update.de_json(request.get_json(force=True), app_bot.bot)
+    app_bot.update_queue.put_nowait(update)
+    return "OK", 200
 
-def run_server():
-    server = HTTPServer(("0.0.0.0", PORT), WebServer)
-    server.serve_forever()
-
+# --- INICIO ---
 if __name__ == "__main__":
-    # 1. Iniciar el servidor web en un hilo aparte
-    threading.Thread(target=run_server, daemon=True).start()
-    
-    # 2. Configurar el Webhook en Telegram
+    # Le decimos a Telegram a dónde enviar los mensajes
     if URL_RENDER:
         webhook_url = f"{URL_RENDER}/{TOKEN}"
-        app.bot.set_webhook(url=webhook_url)
+        app_bot.bot.set_webhook(url=webhook_url)
         print(f"Webhook configurado en: {webhook_url}")
     
-    # 3. Arrancar el bot
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=TOKEN,
-        webhook_url=f"{URL_RENDER}/{TOKEN}" if URL_RENDER else None
-    )
+    # Arrancamos el servidor web (esto mantiene a Render feliz)
+    app_web.run(host="0.0.0.0", port=PORT)
