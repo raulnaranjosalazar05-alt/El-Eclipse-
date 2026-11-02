@@ -1,16 +1,11 @@
 import os
-from flask import Flask, request
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-# --- CONFIGURACIÓN ---
 TOKEN = os.environ.get("TOKEN")
-URL_RENDER = os.environ.get("RENDER_EXTERNAL_URL")
 PORT = int(os.environ.get("PORT", 8080))
-
-# Creamos la app web y el bot
-app_web = Flask(__name__)
-app_bot = Application.builder().token(TOKEN).build()
 
 # --- COMANDOS DEL BOT ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -21,27 +16,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-app_bot.add_handler(CommandHandler("start", start))
-
-# --- RUTAS WEB ---
-@app_web.route("/")
-def home():
-    return "El Sistema esta vivo.", 200
-
-@app_web.route(f"/{TOKEN}", methods=["POST"])
-def webhook():
-    # Telegram envía el mensaje aquí
-    update = Update.de_json(request.get_json(force=True), app_bot.bot)
-    app_bot.update_queue.put_nowait(update)
-    return "OK", 200
+# --- SERVIDOR WEB FALSO (Para que Render no apague el bot) ---
+class WebServer(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"El Sistema esta vivo.")
 
 # --- INICIO ---
 if __name__ == "__main__":
-    # Le decimos a Telegram a dónde enviar los mensajes
-    if URL_RENDER:
-        webhook_url = f"{URL_RENDER}/{TOKEN}"
-        app_bot.bot.set_webhook(url=webhook_url)
-        print(f"Webhook configurado en: {webhook_url}")
+    # 1. Encendemos el servidor web falso en un hilo
+    server = HTTPServer(("0.0.0.0", PORT), WebServer)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    # 2. Encendemos el bot
+    app_bot = Application.builder().token(TOKEN).build()
+    app_bot.add_handler(CommandHandler("start", start))
     
-    # Arrancamos el servidor web (esto mantiene a Render feliz)
-    app_web.run(host="0.0.0.0", port=PORT)
+    print("El Sistema ha despertado. Escuchando a los Cazadores...")
+    app_bot.run_polling(drop_pending_updates=True)
