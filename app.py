@@ -14,6 +14,11 @@ def init_db():
     try:
         conn = psycopg2.connect(DATABASE_URL, sslmode='require')
         cur = conn.cursor()
+        
+        # ¡OJO! Esto borra la tabla vieja para actualizarla con las nuevas columnas.
+        # Como estamos en pruebas, está perfecto. Cuando el juego salga a la luz, quitaremos esta línea.
+        cur.execute("DROP TABLE IF EXISTS usuarios;")
+        
         cur.execute("""
             CREATE TABLE IF NOT EXISTS usuarios (
                 id_telegram BIGINT PRIMARY KEY,
@@ -35,7 +40,7 @@ def init_db():
         conn.commit()
         cur.close()
         conn.close()
-        print("✅ Base de datos lista.")
+        print("✅ Base de datos lista y actualizada.")
     except Exception as e:
         print(f"❌ ERROR DE BD: {e}")
 
@@ -48,13 +53,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         pass 
 
-    # Verificamos si viene con un enlace de referido (ej: /start 123456)
     maestro_id = None
     if context.args:
         try:
             maestro_id = int(context.args[0])
             if maestro_id == user_id:
-                maestro_id = None # No puede ser su propio maestro
+                maestro_id = None 
         except ValueError:
             pass
 
@@ -72,24 +76,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Guardamos el maestro en la memoria temporal
     context.user_data['maestro_id'] = maestro_id
 
     await update.message.reply_text(
         "🌑 *El Sistema te ha detectado.*\n\n"
         "Antes de cruzar el primer portal, necesito tu designación.\n"
-        "**¿Cuál es tu nombre, Sujeto?** (Solo letras y números)",
+        "**¿Cuál es tu nombre, Sujeto?**",
         parse_mode="Markdown"
     )
     context.user_data['esperando_nombre'] = True
     cur.close()
     conn.close()
 
-# --- RECIBIR EL NOMBRE (Solo texto) ---
+# --- RECIBIR EL NOMBRE ---
 async def recibir_nombre(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('esperando_nombre'):
-        
-        # Validación estricta: Si no es texto, lo borra y avisa
         if not update.message.text:
             try:
                 await update.message.delete() 
@@ -108,7 +109,6 @@ async def recibir_nombre(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['nombre_temp'] = nombre_elegido
         context.user_data['esperando_nombre'] = False
         
-        # Ahora preguntamos el Sexo
         keyboard = [
             [InlineKeyboardButton("♂️ Masculino", callback_data='sexo_m')],
             [InlineKeyboardButton("♀️ Femenino", callback_data='sexo_f')]
@@ -131,7 +131,6 @@ async def boton_sexo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sexo_elegido = "M" if query.data == 'sexo_m' else "F"
     context.user_data['sexo_temp'] = sexo_elegido
     
-    # Ahora preguntamos la Clase
     keyboard = [
         [InlineKeyboardButton("⚔️ Espadachín", callback_data='clase_espadachin')],
         [InlineKeyboardButton("🔮 Mago", callback_data='clase_mago')],
@@ -149,7 +148,7 @@ async def boton_sexo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-# --- RECIBIR LA CLASE Y GUARDAR TODO ---
+# --- RECIBIR LA CLASE ---
 async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer() 
@@ -183,8 +182,6 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cur.close()
     conn.close()
     
-    # Aquí irá luego la llamada a la IA para la historia y la foto.
-    # Por ahora, mostramos la ficha básica.
     texto_final = (
         f"✅ *REGISTRO COMPLETADO*\n\n"
         f"👤 Sujeto: **{nombre_elegido}**\n"
