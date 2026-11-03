@@ -14,10 +14,7 @@ def init_db():
     try:
         conn = psycopg2.connect(DATABASE_URL, sslmode='require')
         cur = conn.cursor()
-        
-        # Borramos la tabla anterior para actualizarla con los nuevos campos
         cur.execute("DROP TABLE IF EXISTS usuarios;")
-        
         cur.execute("""
             CREATE TABLE IF NOT EXISTS usuarios (
                 id_telegram BIGINT PRIMARY KEY,
@@ -40,7 +37,7 @@ def init_db():
         conn.commit()
         cur.close()
         conn.close()
-        print("✅ Base de datos lista y actualizada.")
+        print("✅ Base de datos lista.")
     except Exception as e:
         print(f"❌ ERROR DE BD: {e}")
 
@@ -77,6 +74,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     context.user_data['maestro_id'] = maestro_id
+    context.user_data['estado'] = 'esperando_nombre'
 
     await update.message.reply_text(
         "🌑 *El Sistema te ha detectado.*\n\n"
@@ -84,21 +82,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "**¿Cuál es tu nombre, Sujeto?**",
         parse_mode="Markdown"
     )
-    context.user_data['esperando_nombre'] = True
     cur.close()
     conn.close()
 
-# --- RECIBIR EL NOMBRE (Solo texto) ---
-async def recibir_nombre(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get('esperando_nombre'):
-        
-        # Si el usuario manda algo que no es texto
+# --- MANEJADOR GLOBAL (Bloquea todo lo que no sea texto en el momento adecuado) ---
+async def manejar_mensajes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    estado = context.user_data.get('estado')
+
+    # Si estamos esperando nombre, solo permitimos texto
+    if estado == 'esperando_nombre':
         if not update.message.text:
             try:
-                await update.message.delete() # Borramos la foto/audio/sticker
+                await update.message.delete() 
             except:
                 pass
-            await update.message.reply_text("⚠️ El Sistema no procesa imágenes ni audios aquí. **Escribe tu nombre con letras.**", parse_mode="Markdown")
+            await update.message.reply_text("⚠️ El Sistema no procesa esto. **Escribe tu nombre con letras.**", parse_mode="Markdown")
             return
             
         nombre_elegido = update.message.text
@@ -109,7 +107,7 @@ async def recibir_nombre(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
         context.user_data['nombre_temp'] = nombre_elegido
-        context.user_data['esperando_nombre'] = False
+        context.user_data['estado'] = 'esperando_sexo'
         
         keyboard = [
             [InlineKeyboardButton("♂️ Masculino", callback_data='sexo_m')],
@@ -119,22 +117,36 @@ async def recibir_nombre(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await update.message.reply_text(
             f"Registro aceptado, **{nombre_elegido}**.\n\n"
-            "El Sistema necesita conocer tu estructura biológica para el registro visual.\n"
+            "El Sistema necesita conocer tu estructura biológica.\n"
             "**Selecciona tu sexo:**",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
+        return
+
+    # Si estamos esperando un botón, ignoramos cualquier texto o archivo que envíen
+    if estado in ['esperando_sexo', 'esperando_clase']:
+        # Opcional: Borrar el mensaje para mantener el chat limpio
+        try:
+            await update.message.delete()
+        except:
+            pass
+        return
 
 # --- RECIBIR EL SEXO ---
 async def boton_sexo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
+    if context.user_data.get('estado') != 'esperando_sexo':
+        return
+        
     sexo_elegido = "M" if query.data == 'sexo_m' else "F"
     context.user_data['sexo_temp'] = sexo_elegido
+    context.user_data['estado'] = 'esperando_clase'
     
     keyboard = [
-        [InlineKeyboardButton("⚔️ Espadachín/a", callback_data='clase_espadachin')],
+        [InlineKeyboardButton("⚔️ Filo", callback_data='clase_filo')],
         [InlineKeyboardButton("🔮 Mago/a", callback_data='clase_mago')],
         [InlineKeyboardButton("🛡️ Guardián/na", callback_data='clase_guardian')],
         [InlineKeyboardButton("🗡️ Asesino/a", callback_data='clase_asesino')],
@@ -155,15 +167,17 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer() 
     
+    if context.user_data.get('estado') != 'esperando_clase':
+        return
+
     user_id = update.effective_user.id
     clase_base = query.data.replace('clase_', '') 
     nombre_elegido = context.user_data.get('nombre_temp', 'Desconocido')
     sexo_elegido = context.user_data.get('sexo_temp', 'M')
     maestro_id = context.user_data.get('maestro_id', None)
     
-    # Diccionario para adaptar el nombre de la clase al sexo
     nombres_clases = {
-        'espadachin': {'M': 'Espadachín', 'F': 'Espadachina'},
+        'filo': {'M': 'Filo', 'F': 'Filo'},
         'mago': {'M': 'Mago', 'F': 'Maga'},
         'guardian': {'M': 'Guardián', 'F': 'Guardiana'},
         'asesino': {'M': 'Asesino', 'F': 'Asesina'},
@@ -171,18 +185,18 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'clerigo': {'M': 'Clérigo', 'F': 'Clériga'}
     }
     
-    clase_final = nombres_clases.get(clase_base, nombres_clases['espadachin'])[sexo_elegido]
+    clase_final = nombres_clases.get(clase_base, nombres_clases['filo'])[sexo_elegido]
     
     stats = {
-        'espadachin': {'vida': 120, 'atq': 25, 'mov': 15, 'intel': 5,  'res': 15, 'tac': 15},
-        'mago':       {'vida': 80,  'atq': 5,  'mov': 10, 'intel': 25, 'res': 10, 'tac': 25},
-        'guardian':   {'vida': 180, 'atq': 10, 'mov': 5,  'intel': 10, 'res': 25, 'tac': 25},
-        'asesino':    {'vida': 90,  'atq': 20, 'mov': 25, 'intel': 5,  'res': 5,  'tac': 20},
-        'arquero':    {'vida': 100, 'atq': 15, 'mov': 20, 'intel': 10, 'res': 10, 'tac': 20},
-        'clerigo':    {'vida': 110, 'atq': 10, 'mov': 10, 'intel': 20, 'res': 15, 'tac': 20}
+        'filo':     {'vida': 120, 'atq': 25, 'mov': 15, 'intel': 5,  'res': 15, 'tac': 15},
+        'mago':     {'vida': 80,  'atq': 5,  'mov': 10, 'intel': 25, 'res': 10, 'tac': 25},
+        'guardian': {'vida': 180, 'atq': 10, 'mov': 5,  'intel': 10, 'res': 25, 'tac': 25},
+        'asesino':  {'vida': 90,  'atq': 20, 'mov': 25, 'intel': 5,  'res': 5,  'tac': 20},
+        'arquero':  {'vida': 100, 'atq': 15, 'mov': 20, 'intel': 10, 'res': 10, 'tac': 20},
+        'clerigo':  {'vida': 110, 'atq': 10, 'mov': 10, 'intel': 20, 'res': 15, 'tac': 20}
     }
     
-    s = stats.get(clase_base, stats['espadachin'])
+    s = stats.get(clase_base, stats['filo'])
     
     conn = psycopg2.connect(DATABASE_URL, sslmode='require')
     cur = conn.cursor()
@@ -196,7 +210,6 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cur.close()
     conn.close()
     
-    # Símbolo del sexo
     icono_sexo = "♂️" if sexo_elegido == 'M' else "♀️"
     
     texto_final = (
@@ -219,6 +232,8 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     texto_final += "*El Sistema te observa. Prepárate para el primer portal.*"
     
+    context.user_data['estado'] = 'en_menu' # El usuario ya terminó el registro
+    
     await query.edit_message_text(text=texto_final, parse_mode="Markdown")
 
 # --- SERVIDOR WEB FALSO ---
@@ -237,8 +252,10 @@ def main():
     app = Application.builder().token(TOKEN).build()
     
     app.add_handler(CommandHandler("start", start))
-    # Añadimos un filtro para que también capture las fotos/stickers si está esperando el nombre
-    app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.Sticker.ALL | filters.AUDIO) & ~filters.COMMAND, recibir_nombre))
+    
+    # Este manejador atrapará TODO (textos, fotos, videos, etc.) y decidirá qué hacer
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, manejar_mensajes))
+    
     app.add_handler(CallbackQueryHandler(boton_sexo, pattern='^sexo_'))
     app.add_handler(CallbackQueryHandler(boton_clase, pattern='^clase_'))
     
