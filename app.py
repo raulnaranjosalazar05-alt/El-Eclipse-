@@ -51,18 +51,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🌑 *Regreso detectado.*\n\nEl Sistema ya tiene tu registro. Pronto podrás luchar.",
             parse_mode="Markdown"
         )
-    else:
-        await update.message.reply_text(
-            "🌑 *El Sistema te ha detectado.*\n\n"
-            "Antes de cruzar el primer portal, necesito tu designación.\n"
-            "**¿Cuál es tu nombre, Sujeto?**",
-            parse_mode="Markdown"
-        )
-        context.user_data['esperando_nombre'] = True
+        return
+
+    await update.message.reply_text(
+        "🌑 *El Sistema te ha detectado.*\n\n"
+        "Antes de cruzar el primer portal, necesito tu designación.\n"
+        "**¿Cuál es tu nombre, Sujeto?**",
+        parse_mode="Markdown"
+    )
+    context.user_data['esperando_nombre'] = True
 
 # --- RECIBIR EL NOMBRE ---
 async def recibir_nombre(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('esperando_nombre'):
+        if not update.message.text:
+            await update.message.reply_text("⚠️ El Sistema solo acepta texto. Escribe tu nombre.")
+            return
+            
         nombre_elegido = update.message.text
         context.user_data['nombre_temp'] = nombre_elegido
         context.user_data['esperando_nombre'] = False
@@ -78,7 +83,8 @@ async def recibir_nombre(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await update.message.reply_text(
-            f"Registro aceptado, **{nombre_elegido}**.\n\nAhora el Sistema necesita saber qué camino tomarás. **Elige tu clase:**",
+            f"Registro aceptado, **{nombre_elegido}**.\n\n"
+            "Ahora el Sistema necesita saber qué camino tomarás. **Elige tu clase:**",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -86,19 +92,21 @@ async def recibir_nombre(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- RECIBIR EL BOTÓN DE LA CLASE ---
 async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    await query.answer() 
     
     user_id = update.effective_user.id
     clase_elegida = query.data.replace('clase_', '') 
     nombre_elegido = context.user_data.get('nombre_temp', 'Desconocido')
     
+    # --- ESTADÍSTICAS SIMPLES (5, 10, 15, 20, 25) ---
     stats = {
-        'espadachin': {'vida': 120, 'atq': 20, 'mov': 15, 'intel': 5, 'vit': 15, 'tac': 10},
-        'mago': {'vida': 80, 'atq': 5, 'mov': 10, 'intel': 20, 'vit': 10, 'tac': 10},
-        'guardian': {'vida': 180, 'atq': 15, 'mov': 10, 'intel': 10, 'vit': 20, 'tac': 5},
-        'asesino': {'vida': 90, 'atq': 15, 'mov': 20, 'intel': 5, 'vit': 10, 'tac': 15},
-        'arquero': {'vida': 100, 'atq': 10, 'mov': 15, 'intel': 10, 'vit': 10, 'tac': 20},
-        'clerigo': {'vida': 110, 'atq': 5, 'mov': 10, 'intel': 15, 'vit': 15, 'tac': 10}
+        # ATQ, MOV, INT, VIT, TAC
+        'espadachin': {'vida': 120, 'atq': 25, 'mov': 15, 'intel': 5, 'vit': 15, 'tac': 15},
+        'mago':       {'vida': 80,  'atq': 5,  'mov': 10, 'intel': 25, 'vit': 10, 'tac': 25},
+        'guardian':   {'vida': 180, 'atq': 10, 'mov': 5,  'intel': 10, 'vit': 25, 'tac': 25},
+        'asesino':    {'vida': 90,  'atq': 20, 'mov': 25, 'intel': 5,  'vit': 5,  'tac': 20},
+        'arquero':    {'vida': 100, 'atq': 15, 'mov': 20, 'intel': 10, 'vit': 10, 'tac': 20},
+        'clerigo':    {'vida': 110, 'atq': 10, 'mov': 10, 'intel': 20, 'vit': 15, 'tac': 20}
     }
     
     s = stats.get(clase_elegida, stats['espadachin'])
@@ -118,11 +126,11 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto_final = (
         f"✅ *REGISTRO COMPLETADO*\n\n"
         f"👤 Sujeto: **{nombre_elegido}**\n"
-        f"⚔️ Clase: **{clase_elegida.capitalize()}**\n"
-        f"📊 Nivel: **1**\n\n"
+        f"🌟 Clase: **{clase_elegida.capitalize()}**\n"
+        f"🔝 Nivel: **1**\n\n"
         f"❤️ Vida: {s['vida']}\n"
-        f"⚔️ Ataque: {s['atq']}\n"
-        f"💨 Movilidad: {s['mov']}\n"
+        f"🤜 Ataque: {s['atq']}\n"
+        f"👣 Movilidad: {s['mov']}\n"
         f"🧠 Inteligencia: {s['intel']}\n"
         f"🛡️ Vitalidad: {s['vit']}\n"
         f"🎯 Táctica: {s['tac']}\n\n"
