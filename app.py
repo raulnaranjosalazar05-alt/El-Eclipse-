@@ -15,8 +15,7 @@ def init_db():
         conn = psycopg2.connect(DATABASE_URL, sslmode='require')
         cur = conn.cursor()
         
-        # ¡OJO! Esto borra la tabla vieja para actualizarla con las nuevas columnas.
-        # Como estamos en pruebas, está perfecto. Cuando el juego salga a la luz, quitaremos esta línea.
+        # Borramos la tabla anterior para actualizarla con los nuevos campos
         cur.execute("DROP TABLE IF EXISTS usuarios;")
         
         cur.execute("""
@@ -25,6 +24,7 @@ def init_db():
                 nombre VARCHAR(50),
                 clase VARCHAR(20),
                 sexo VARCHAR(10),
+                rango VARCHAR(5) DEFAULT 'E',
                 maestro_id BIGINT,
                 historia TEXT,
                 foto_url TEXT,
@@ -88,12 +88,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cur.close()
     conn.close()
 
-# --- RECIBIR EL NOMBRE ---
+# --- RECIBIR EL NOMBRE (Solo texto) ---
 async def recibir_nombre(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('esperando_nombre'):
+        
+        # Si el usuario manda algo que no es texto
         if not update.message.text:
             try:
-                await update.message.delete() 
+                await update.message.delete() # Borramos la foto/audio/sticker
             except:
                 pass
             await update.message.reply_text("⚠️ El Sistema no procesa imágenes ni audios aquí. **Escribe tu nombre con letras.**", parse_mode="Markdown")
@@ -132,12 +134,12 @@ async def boton_sexo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['sexo_temp'] = sexo_elegido
     
     keyboard = [
-        [InlineKeyboardButton("⚔️ Espadachín", callback_data='clase_espadachin')],
-        [InlineKeyboardButton("🔮 Mago", callback_data='clase_mago')],
-        [InlineKeyboardButton("🛡️ Guardián", callback_data='clase_guardian')],
-        [InlineKeyboardButton("🗡️ Asesino", callback_data='clase_asesino')],
-        [InlineKeyboardButton("🏹 Arquero", callback_data='clase_arquero')],
-        [InlineKeyboardButton("✨ Clérigo", callback_data='clase_clerigo')]
+        [InlineKeyboardButton("⚔️ Espadachín/a", callback_data='clase_espadachin')],
+        [InlineKeyboardButton("🔮 Mago/a", callback_data='clase_mago')],
+        [InlineKeyboardButton("🛡️ Guardián/na", callback_data='clase_guardian')],
+        [InlineKeyboardButton("🗡️ Asesino/a", callback_data='clase_asesino')],
+        [InlineKeyboardButton("🏹 Arquero/a", callback_data='clase_arquero')],
+        [InlineKeyboardButton("✨ Clérigo/a", callback_data='clase_clerigo')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -154,10 +156,22 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer() 
     
     user_id = update.effective_user.id
-    clase_elegida = query.data.replace('clase_', '') 
+    clase_base = query.data.replace('clase_', '') 
     nombre_elegido = context.user_data.get('nombre_temp', 'Desconocido')
     sexo_elegido = context.user_data.get('sexo_temp', 'M')
     maestro_id = context.user_data.get('maestro_id', None)
+    
+    # Diccionario para adaptar el nombre de la clase al sexo
+    nombres_clases = {
+        'espadachin': {'M': 'Espadachín', 'F': 'Espadachina'},
+        'mago': {'M': 'Mago', 'F': 'Maga'},
+        'guardian': {'M': 'Guardián', 'F': 'Guardiana'},
+        'asesino': {'M': 'Asesino', 'F': 'Asesina'},
+        'arquero': {'M': 'Arquero', 'F': 'Arquera'},
+        'clerigo': {'M': 'Clérigo', 'F': 'Clériga'}
+    }
+    
+    clase_final = nombres_clases.get(clase_base, nombres_clases['espadachin'])[sexo_elegido]
     
     stats = {
         'espadachin': {'vida': 120, 'atq': 25, 'mov': 15, 'intel': 5,  'res': 15, 'tac': 15},
@@ -168,25 +182,29 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'clerigo':    {'vida': 110, 'atq': 10, 'mov': 10, 'intel': 20, 'res': 15, 'tac': 20}
     }
     
-    s = stats.get(clase_elegida, stats['espadachin'])
+    s = stats.get(clase_base, stats['espadachin'])
     
     conn = psycopg2.connect(DATABASE_URL, sslmode='require')
     cur = conn.cursor()
     cur.execute("""
-        INSERT INTO usuarios (id_telegram, nombre, clase, sexo, maestro_id, vida, atq, mov, intel, res, tac)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO usuarios (id_telegram, nombre, clase, sexo, rango, maestro_id, vida, atq, mov, intel, res, tac)
+        VALUES (%s, %s, %s, %s, 'E', %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (id_telegram) DO UPDATE SET
-        nombre = EXCLUDED.nombre, clase = EXCLUDED.clase, sexo = EXCLUDED.sexo, maestro_id = EXCLUDED.maestro_id, vida = EXCLUDED.vida, atq = EXCLUDED.atq, mov = EXCLUDED.mov, intel = EXCLUDED.intel, res = EXCLUDED.res, tac = EXCLUDED.tac
-    """, (user_id, nombre_elegido, clase_elegida.capitalize(), sexo_elegido, maestro_id, s['vida'], s['atq'], s['mov'], s['intel'], s['res'], s['tac']))
+        nombre = EXCLUDED.nombre, clase = EXCLUDED.clase, sexo = EXCLUDED.sexo, rango = 'E', maestro_id = EXCLUDED.maestro_id, vida = EXCLUDED.vida, atq = EXCLUDED.atq, mov = EXCLUDED.mov, intel = EXCLUDED.intel, res = EXCLUDED.res, tac = EXCLUDED.tac
+    """, (user_id, nombre_elegido, clase_final, sexo_elegido, maestro_id, s['vida'], s['atq'], s['mov'], s['intel'], s['res'], s['tac']))
     conn.commit()
     cur.close()
     conn.close()
     
+    # Símbolo del sexo
+    icono_sexo = "♂️" if sexo_elegido == 'M' else "♀️"
+    
     texto_final = (
         f"✅ *REGISTRO COMPLETADO*\n\n"
         f"👤 Sujeto: **{nombre_elegido}**\n"
-        f"⚔️ Clase: **{clase_elegida.capitalize()}**\n"
-        f"♂️/♀️ Sexo: **{'Masculino' if sexo_elegido == 'M' else 'Femenino'}**\n"
+        f"⚔️ Clase: **{clase_final}**\n"
+        f"{icono_sexo} Sexo: **{'Masculino' if sexo_elegido == 'M' else 'Femenino'}**\n"
+        f"🏅 Rango: **E**\n"
         f"📊 Nivel: **1**\n\n"
         f"❤️ Vida: {s['vida']}\n"
         f"⚔️ Ataque: {s['atq']}\n"
@@ -219,7 +237,8 @@ def main():
     app = Application.builder().token(TOKEN).build()
     
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_nombre))
+    # Añadimos un filtro para que también capture las fotos/stickers si está esperando el nombre
+    app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.Sticker.ALL | filters.AUDIO) & ~filters.COMMAND, recibir_nombre))
     app.add_handler(CallbackQueryHandler(boton_sexo, pattern='^sexo_'))
     app.add_handler(CallbackQueryHandler(boton_clase, pattern='^clase_'))
     
