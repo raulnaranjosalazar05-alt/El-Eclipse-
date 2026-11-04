@@ -271,6 +271,7 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # URL CORREGIDA CON LA API KEY Y EL DOMINIO GEN
         foto_url = f"https://gen.pollinations.ai/image/{urllib.parse.quote(prompt)}?width=512&height=512&nologo=true&model=flux&seed={random.randint(1, 9999)}&key={POLLINATIONS_API_KEY}"
 
+        # Guardar en BD y ENVIAR LA FOTO PRIMERO (Rápido)
         cur.execute("""
             INSERT INTO usuarios (id_telegram, nombre, clase, sexo, rango, historia, foto_url, vida, vida_max, mana, mana_max, atq, mov, intel, res, tac, estrellas)
             VALUES (%s, %s, %s, %s, 'E', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0)
@@ -278,6 +279,20 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """, (user_id, nombre_elegido, clase_final, sexo_elegido, historia_defecto, foto_url, s['vida'], s['vida'], s['mana'], s['mana'], s['atq'], s['mov'], s['intel'], s['res'], s['tac']))
         conn.commit(); cur.close(); conn.close()
 
+        texto_foto = (
+            f"🌑 *REGISTRO VISUAL*\n\n"
+            f"👤 Sujeto: **{nombre_elegido}**\n\n"
+            f"💡 *Sugerencia:* Guarda esta imagen y úsala en tu perfil de Telegram.\n\n"
+            f"⏳ *El Sistema está escribiendo tu historia...*"
+        )
+        
+        try:
+            await context.bot.send_photo(chat_id=update.effective_chat.id, photo=foto_url, caption=texto_foto, parse_mode="Markdown")
+        except Exception as e:
+            print(f"Error enviando foto: {e}")
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"⚠️ Fallo al enviar imagen. El Sistema espera tu historia...")
+
+        # Pedir historia a Groq DESPUÉS de enviar la foto
         prompt_historia = f"Eres 'El Sistema'. Escribe una historia de origen épica y oscura (máximo 3 líneas) para un personaje llamado {nombre_elegido}, que es un {clase_final} en un mundo post-apocalíptico llamado 'El Eclipse'."
         historia_ia = await narrar_con_ia(prompt_historia, f"Genera la historia para {nombre_elegido}.")
         
@@ -285,22 +300,9 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
             conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
             cur.execute("UPDATE usuarios SET historia = %s WHERE id_telegram = %s", (historia_ia, user_id))
             conn.commit(); cur.close(); conn.close()
-            historia_final = historia_ia
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"📖 *HISTORIA DEL SISTEMA*\n\n{historia_ia}", parse_mode="Markdown")
         else:
-            historia_final = historia_defecto
-
-        texto_foto = (
-            f"🌑 *REGISTRO VISUAL*\n\n"
-            f"👤 Sujeto: **{nombre_elegido}**\n\n"
-            f"📖 *Historia:*\n{historia_final}\n\n"
-            f"💡 *Sugerencia:* Guarda esta imagen y úsala en tu perfil de Telegram."
-        )
-        
-        try:
-            await context.bot.send_photo(chat_id=update.effective_chat.id, photo=foto_url, caption=texto_foto, parse_mode="Markdown")
-        except Exception as e:
-            print(f"Error enviando foto: {e}")
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"⚠️ Fallo al enviar imagen, pero aquí está tu historia:\n\n{historia_final}")
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"📖 *HISTORIA DEL SISTEMA*\n\n{historia_defecto}\n\n*(La IA falló, usando historia por defecto)*", parse_mode="Markdown")
 
     asyncio.create_task(guardar_y_generar())
 
@@ -366,7 +368,6 @@ async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔮 Habilidad", callback_data='combate_habilidad'), InlineKeyboardButton("🏃 Huir", callback_data='combate_huir')]
     ]
     
-    # URL CORREGIDA PARA EL MONSTRUO
     prompt_m = urllib.parse.quote(f"epic dark fantasy monster {monstruo['nombre']}, purple neon portal background")
     foto_url_m = f"https://gen.pollinations.ai/image/{prompt_m}?width=512&height=512&nologo=true&model=flux&seed={monstruo['seed']}&key={POLLINATIONS_API_KEY}"
     
