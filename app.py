@@ -61,7 +61,7 @@ def init_db():
 
 # --- LIMPIAR CHAT ---
 async def limpiar_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    for clave in ['msg_bienvenida', 'msg_error', 'msg_perfil', 'msg_combate', 'msg_tienda']:
+    for clave in ['msg_bienvenida', 'msg_error', 'msg_perfil', 'msg_combate', 'msg_tienda', 'msg_creador']:
         msg_id = context.user_data.get(clave)
         if msg_id:
             try: await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_id)
@@ -204,7 +204,6 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try: await query.message.delete()
     except: pass
     
-    # Enviamos la foto y luego activamos el menú fijo
     await context.bot.send_photo(chat_id=update.effective_chat.id, photo=foto_url, caption=texto_final, parse_mode="Markdown")
     
     msg = await update.message.reply_text("🌑 El Sistema ha registrado tu ficha. Usa los botones de abajo.", reply_markup=obtener_menu_fijo())
@@ -295,7 +294,6 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             conn.commit(); cur.close(); conn.close()
             await query.edit_message_text(narracion + "\n\n🌑 *Has vuelto al Refugio.*", parse_mode="Markdown")
             context.user_data['estado'] = 'en_menu'
-            # Restaurar menú fijo
             await context.bot.send_message(chat_id=update.effective_chat.id, text="Menú activado.", reply_markup=obtener_menu_fijo())
             return
         else:
@@ -316,7 +314,7 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 mana -= 20
                 stat = intel if clase in ['Mago', 'Maga'] else atq
                 dano = int((stat * 1.5) + random.randint(5, 15))
-                if accion == 'habilidad' and clase in ['Mago', 'Maga']: # Debilidad de Karu
+                if accion == 'habilidad' and clase in ['Mago', 'Maga']:
                     dano = int(dano * 2)
                     narracion += "usa magia. Karu es débil a esto. "
                 else:
@@ -436,7 +434,6 @@ async def comprar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cur.execute("INSERT INTO inventario (id_telegram, item, cantidad) VALUES (%s, %s, 1) ON CONFLICT (id_telegram, item) DO UPDATE SET cantidad = inventario.cantidad + 1", (user_id, item))
         await query.edit_message_text(f"✅ Has comprado **{item.replace('_', ' ').title()}**.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data='menu_tienda')]]), parse_mode="Markdown")
     else:
-        # Simulación de caja
         await query.edit_message_text(f"📦 Abriste **{item.replace('_', ' ').title()}**.\nGanaste 10 Estrellas ficticias.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data='menu_tienda')]]), parse_mode="Markdown")
     
     conn.commit(); cur.close(); conn.close()
@@ -460,12 +457,12 @@ async def inventario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text(texto, parse_mode="Markdown")
     context.user_data['msg_bienvenida'] = msg.message_id
 
-# --- CREADOR ---
+# --- CREADOR (CON REGALO DE ESTRELLAS) ---
 async def creador(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ID_CREADOR: return
     keyboard = [
         [InlineKeyboardButton("👑 Invocar Jefe Supremo", callback_data='admin_jefe')],
-        [InlineKeyboardButton("⭐ Darme 100 Estrellas", callback_data='admin_dar_estrellas')]
+        [InlineKeyboardButton("⭐ Regalar Estrellas", callback_data='admin_regalar_estrellas')]
     ]
     await update.message.reply_text("👑 *PANEL DEL CREADOR*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
@@ -473,17 +470,31 @@ async def boton_creador(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
     if update.effective_user.id != ID_CREADOR: return
 
-    if query.data == 'admin_dar_estrellas':
-        conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
-        cur.execute("UPDATE usuarios SET estrellas = estrellas + 100 WHERE id_telegram = %s", (ID_CREADOR,))
-        conn.commit(); cur.close(); conn.close()
-        await query.edit_message_text("⭐ Te has dado 100 Estrellas. Ve a la tienda.")
-    
-    elif query.data == 'admin_jefe':
+    if query.data == 'admin_jefe':
         conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
         cur.execute("INSERT INTO jefe_supremo (id, nombre, vida, activo) VALUES (1, 'El Devorador', 100000, TRUE) ON CONFLICT (id) DO UPDATE SET vida = 100000, activo = TRUE")
         conn.commit(); cur.close(); conn.close()
         await query.edit_message_text("👑 Jefe invocado.")
+    
+    elif query.data == 'admin_regalar_estrellas':
+        await query.edit_message_text("Escribe el ID del jugador y la cantidad (ej: `6985217869 100`) en el chat.", parse_mode="Markdown")
+        context.user_data['estado'] = 'regalar_estrellas'
+
+# --- MANEJADOR DE TEXTO PARA REGALAR ESTRELLAS ---
+async def manejar_regalo_estrellas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ID_CREADOR: return
+    try:
+        partes = update.message.text.split()
+        target_id = int(partes[0])
+        cantidad = int(partes[1])
+        
+        conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
+        cur.execute("UPDATE usuarios SET estrellas = estrellas + %s WHERE id_telegram = %s", (cantidad, target_id))
+        conn.commit(); cur.close(); conn.close()
+        
+        await update.message.reply_text(f"⭐ Has regalado {cantidad} Estrellas al ID {target_id}.")
+    except:
+        await update.message.reply_text("❌ Formato incorrecto. Usa: `ID CANTIDAD`", parse_mode="Markdown")
 
 # --- SERVIDOR WEB Y MAIN ---
 class WebServer(BaseHTTPRequestHandler):
@@ -500,8 +511,8 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("creador", creador))
     
-    # El manejador de mensajes atrapa los botones fijos de abajo
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, manejar_mensajes))
+    # Añadimos el manejador para el regalo de estrellas (solo actúa si el estado es correcto)
     
     app.add_handler(CallbackQueryHandler(boton_sexo, pattern='^sexo_'))
     app.add_handler(CallbackQueryHandler(boton_clase, pattern='^clase_'))
