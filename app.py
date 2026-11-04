@@ -14,8 +14,6 @@ TOKEN = os.environ.get("TOKEN")
 DATABASE_URL = os.environ.get("DATABASE_URL")
 PORT = int(os.environ.get("PORT", 8080))
 ID_CREADOR = 6985217869
-
-# ⚠️ CONFIGURACIÓN DE TU GRUPO
 ID_GRUPO = -1004347230537
 LINK_GRUPO = "https://t.me/ElRefugio_Eclipse"
 
@@ -32,22 +30,17 @@ ARMAS = {
 }
 
 MONSTRUOS = {
-    "E": [
-        {"nombre": "Karu, el Registrado", "hp": 100, "atk": 25, "grupo": "A", "exp": 100},
-        {"nombre": "Vex, Sujeto 07", "hp": 120, "atk": 28, "grupo": "B", "exp": 100},
-        {"nombre": "Kael, Eco del Portal", "hp": 90, "atk": 30, "grupo": "A", "exp": 100},
-        {"nombre": "Zeth, Larva del Umbral", "hp": 80, "atk": 22, "grupo": "B", "exp": 100},
-        {"nombre": "Rakan, Colmillo Rojo", "hp": 130, "atk": 32, "grupo": "A", "exp": 100}
-    ],
-    "D": [
-        {"nombre": "Draven, el que Espera", "hp": 200, "atk": 40, "grupo": "A", "exp": 250},
-        {"nombre": "Sirak, Tres Bocas", "hp": 180, "atk": 45, "grupo": "B", "exp": 240},
-        {"nombre": "Nox, el Silencioso", "hp": 150, "atk": 50, "grupo": "A", "exp": 260},
-        {"nombre": "Thane, Piel de Piedra", "hp": 300, "atk": 35, "grupo": "B", "exp": 280},
-        {"nombre": "Vorkan, el que Devora", "hp": 220, "atk": 42, "grupo": "A", "exp": 270}
-    ],
+    "E": [{"nombre": "Karu, el Registrado", "hp": 100, "atk": 25, "grupo": "A", "exp": 100}, {"nombre": "Vex, Sujeto 07", "hp": 120, "atk": 28, "grupo": "B", "exp": 100}, {"nombre": "Kael, Eco del Portal", "hp": 90, "atk": 30, "grupo": "A", "exp": 100}, {"nombre": "Zeth, Larva del Umbral", "hp": 80, "atk": 22, "grupo": "B", "exp": 100}, {"nombre": "Rakan, Colmillo Rojo", "hp": 130, "atk": 32, "grupo": "A", "exp": 100}],
+    "D": [{"nombre": "Draven, el que Espera", "hp": 200, "atk": 40, "grupo": "A", "exp": 250}, {"nombre": "Sirak, Tres Bocas", "hp": 180, "atk": 45, "grupo": "B", "exp": 240}, {"nombre": "Nox, el Silencioso", "hp": 150, "atk": 50, "grupo": "A", "exp": 260}, {"nombre": "Thane, Piel de Piedra", "hp": 300, "atk": 35, "grupo": "B", "exp": 280}, {"nombre": "Vorkan, el que Devora", "hp": 220, "atk": 42, "grupo": "A", "exp": 270}],
+    "C": [{"nombre": "Malakar, el que Renace", "hp": 450, "atk": 60, "grupo": "B", "exp": 500}, {"nombre": "Senn, la Grieta", "hp": 380, "atk": 65, "grupo": "A", "exp": 480}, {"nombre": "Orun, el Coro", "hp": 350, "atk": 70, "grupo": "B", "exp": 490}, {"nombre": "Vesper, la Mano", "hp": 400, "atk": 55, "grupo": "A", "exp": 510}, {"nombre": "Krag, el Hambriento", "hp": 420, "atk": 62, "grupo": "B", "exp": 520}, {"nombre": "Lyra, la que Canta", "hp": 360, "atk": 68, "grupo": "A", "exp": 495}],
+    "B": [{"nombre": "Dorn, el Ancla", "hp": 600, "atk": 75, "grupo": "A", "exp": 800}, {"nombre": "Sylas, Dos Caras", "hp": 550, "atk": 80, "grupo": "B", "exp": 820}, {"nombre": "Mork, el que Copia", "hp": 580, "atk": 78, "grupo": "A", "exp": 810}, {"nombre": "Tessa, la Niebla", "hp": 520, "atk": 85, "grupo": "B", "exp": 830}, {"nombre": "Brann, el Quebrado", "hp": 650, "atk": 72, "grupo": "A", "exp": 790}, {"nombre": "Ulric, el Silencio", "hp": 570, "atk": 82, "grupo": "B", "exp": 840}],
+    "A": [{"nombre": "Vareth, el Rey Roto", "hp": 800, "atk": 95, "grupo": "B", "exp": 1200}, {"nombre": "Nihilus, el Vacío", "hp": 750, "atk": 100, "grupo": "A", "exp": 1150}, {"nombre": "Seraph, el Caído", "hp": 780, "atk": 98, "grupo": "B", "exp": 1180}, {"nombre": "Gorrath, el Montaña", "hp": 950, "atk": 90, "grupo": "A", "exp": 1220}, {"nombre": "Yvaine, la Última", "hp": 820, "atk": 96, "grupo": "B", "exp": 1210}],
+    "S": [{"nombre": "Zero, el que No Fue", "hp": 1200, "atk": 120, "grupo": "A", "exp": 2000}, {"nombre": "Theia, la que Ve", "hp": 1100, "atk": 125, "grupo": "B", "exp": 2100}, {"nombre": "Abel, el Primero", "hp": 1300, "atk": 118, "grupo": "A", "exp": 2200}],
     "JEFE_E": {"nombre": "Guardián del Umbral", "hp": 300, "atk": 40, "grupo": "C", "exp": 0},
-    "JEFE_D": {"nombre": "El Coloso de Hierro", "hp": 600, "atk": 60, "grupo": "C", "exp": 0}
+    "JEFE_D": {"nombre": "El Coloso de Hierro", "hp": 600, "atk": 60, "grupo": "C", "exp": 0},
+    "JEFE_C": {"nombre": "El Ojo del Eclipse", "hp": 1200, "atk": 85, "grupo": "C", "exp": 0},
+    "JEFE_B": {"nombre": "El Sepulturero de Almas", "hp": 2000, "atk": 110, "grupo": "C", "exp": 0},
+    "JEFE_A": {"nombre": "El Titán del Eclipse", "hp": 3500, "atk": 150, "grupo": "C", "exp": 0}
 }
 
 def init_db():
@@ -125,7 +118,7 @@ def calcular_multiplicador_exp(clase_jugador, grupo_monstruo):
     else: return 1.5
 
 async def limpiar_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    for clave in ['msg_bienvenida', 'msg_error', 'msg_perfil', 'msg_combate', 'msg_tienda', 'msg_creador', 'msg_pregunta_sexo', 'msg_pregunta_clase', 'msg_transicion']:
+    for clave in ['msg_bienvenida', 'msg_error', 'msg_perfil', 'msg_combate', 'msg_tienda', 'msg_creador', 'msg_pregunta_sexo', 'msg_pregunta_clase', 'msg_transicion', 'msg_duelo']:
         msg_id = context.user_data.get(clave)
         if msg_id:
             try: await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_id)
@@ -138,7 +131,7 @@ def obtener_menu_fijo():
     return ReplyKeyboardMarkup([
         [KeyboardButton("👤 Perfil"), KeyboardButton("🩸 Portal")], 
         [KeyboardButton("🛒 Tienda"), KeyboardButton("🎒 Inventario")],
-        [KeyboardButton("🍻 La Taberna")]
+        [KeyboardButton("🍻 La Taberna"), KeyboardButton("⚔️ Arena PvP")]
     ], resize_keyboard=True)
 
 async def enviar_factura(update: Update, context: ContextTypes.DEFAULT_TYPE, item_nombre, item_precio, item_callback):
@@ -196,6 +189,36 @@ async def manejar_mensajes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await limpiar_chat(update, context)
         await update.message.reply_text(f"🍻 *LA TABERNA*\n\nReúnete con otros Cazadores, presume tus trofeos y conspira contra el Sistema.\n\n👉 [Entrar a La Taberna]({LINK_GRUPO})", parse_mode="Markdown", disable_web_page_preview=True)
         return
+    elif texto == "⚔️ Arena PvP":
+        await limpiar_chat(update, context)
+        conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
+        cur.execute("SELECT nivel, nombre FROM usuarios WHERE id_telegram = %s", (user_id,))
+        mi_nivel, mi_nombre = cur.fetchone()
+        
+        cur.execute("SELECT id_telegram, nombre, nivel, clase FROM usuarios WHERE id_telegram != %s AND nivel BETWEEN %s AND %s ORDER BY RANDOM() LIMIT 1", (user_id, mi_nivel - 5, mi_nivel + 5))
+        rival = cur.fetchone()
+        
+        if not rival:
+            await update.message.reply_text("🌑 *El Sistema no encuentra rivales de tu nivel en este momento.*\nIntenta más tarde.", reply_markup=obtener_menu_fijo(), parse_mode="Markdown")
+            cur.close(); conn.close(); return
+            
+        rival_id, rival_nombre, rival_nivel, rival_clase = rival
+        
+        texto_reto = (
+            f"🩸 *RETO DE SANGRE EN LA ARENA*\n\n"
+            f"El Sujeto **{mi_nombre}** (Nivel {mi_nivel}) te ha desafiado.\n\n"
+            f"🏅 *Recompensa:* 5 Estrellas ⭐ al ganador.\n"
+            f"💀 *Castigo:* El perdedor pierde 1 Energía y queda al 50% de Vida.\n\n"
+            f"*El Sistema espera tu respuesta.*"
+        )
+        keyboard = [[InlineKeyboardButton("⚔️ Aceptar Duelo", callback_data=f"aceptar_duelo_{user_id}")]]
+        
+        try:
+            await context.bot.send_message(chat_id=rival_id, text=texto_reto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            await update.message.reply_text(f"✅ Reto enviado a **{rival_nombre}** (Nivel {rival_nivel}).\n\n*Si ganas: +5 Estrellas ⭐. Si pierdes: -1 Energía y quedas al 50% de vida.*", reply_markup=obtener_menu_fijo(), parse_mode="Markdown")
+        except:
+            await update.message.reply_text("🌑 El rival no tiene el bot abierto.", reply_markup=obtener_menu_fijo())
+        cur.close(); conn.close(); return
     
     if texto in ["⚔️ Ejecutor", "🔮 Mago", "🛡️ Guardián", "🗡️ Asesino", "🏹 Arquero", "✨ Clérigo"]:
         context.user_data['clase_temp'] = texto; await procesar_clase_final(update, context); return
@@ -313,6 +336,12 @@ async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         monstruo = MONSTRUOS["JEFE_E"]; es_jefe = True
     elif rango_jugador == "D" and derrotados_count >= 10 and nivel >= 20:
         monstruo = MONSTRUOS["JEFE_D"]; es_jefe = True
+    elif rango_jugador == "C" and derrotados_count >= 16 and nivel >= 35:
+        monstruo = MONSTRUOS["JEFE_C"]; es_jefe = True
+    elif rango_jugador == "B" and derrotados_count >= 22 and nivel >= 50:
+        monstruo = MONSTRUOS["JEFE_B"]; es_jefe = True
+    elif rango_jugador == "A" and derrotados_count >= 27 and nivel >= 70:
+        monstruo = MONSTRUOS["JEFE_A"]; es_jefe = True
     else:
         enemigos_rango = MONSTRUOS.get(rango_jugador, MONSTRUOS["E"])
         cur.execute("SELECT nombre FROM derrotados WHERE id_telegram = %s", (user_id,))
@@ -419,7 +448,11 @@ async def procesar_accion_combate(update: Update, context: ContextTypes.DEFAULT_
     if hp_monstruo <= 0:
         if es_jefe:
             narracion_epica += f"\n\n👑 **HAS DERROTADO AL JEFE FINAL.**\nEl Sistema te permite ascender al siguiente Rango."
-            nuevo_rango = 'D' if rango == 'E' else ('C' if rango == 'D' else 'B')
+            nuevo_rango = 'D'
+            if rango == 'D': nuevo_rango = 'C'
+            elif rango == 'C': nuevo_rango = 'B'
+            elif rango == 'B': nuevo_rango = 'A'
+            elif rango == 'A': nuevo_rango = 'S'
             cur.execute("UPDATE usuarios SET rango = %s, vida = %s, mana = %s, en_combate = FALSE, energia = 5 WHERE id_telegram = %s", (nuevo_rango, vida, mana, user_id))
         else:
             mult_exp = calcular_multiplicador_exp(clase, monstruo['grupo'])
@@ -641,6 +674,155 @@ async def atacar_jefe_boton(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else: texto += "*El Sistema registra tu ataque. Sigue peleando.*"
     await query.edit_message_text(texto, reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None, parse_mode="Markdown")
 
+async def aceptar_duelo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query; await query.answer()
+    retador_id = int(query.data.replace("aceptar_duelo_", ""))
+    rival_id = update.effective_user.id
+    
+    conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
+    cur.execute("SELECT nombre, clase, vida, vida_max, atq, intel, mov, energia FROM usuarios WHERE id_telegram = %s", (retador_id,))
+    retador = cur.fetchone()
+    cur.execute("SELECT nombre, clase, vida, vida_max, atq, intel, mov, energia FROM usuarios WHERE id_telegram = %s", (rival_id,))
+    rival = cur.fetchone()
+    
+    if not retador or not rival:
+        await query.edit_message_text("🌑 Uno de los Sujetos ya no existe.")
+        cur.close(); conn.close(); return
+
+    n_ret, c_ret, v_ret, vmax_ret, atq_ret, int_ret, mov_ret, en_ret = retador
+    n_riv, c_riv, v_riv, vmax_riv, atq_riv, int_riv, mov_riv, en_riv = rival
+
+    if en_ret <= 0 or en_riv <= 0:
+        await query.edit_message_text("🌑 Uno de los Sujetos no tiene Energía para pelear.")
+        cur.close(); conn.close(); return
+
+    dano_ret = (int_ret * 1.5) if 'Mago' in c_ret else atq_ret
+    dano_riv = (int_riv * 1.5) if 'Mago' in c_riv else atq_riv
+
+    mult_ret = calcular_dano_faccion(c_ret, "A" if c_riv in GRUPO_A else "B")
+    mult_riv = calcular_dano_faccion(c_riv, "A" if c_ret in GRUPO_A else "B")
+    
+    dano_ret = int(dano_ret * mult_ret)
+    dano_riv = int(dano_riv * mult_riv)
+
+    for _ in range(3):
+        v_riv -= dano_ret
+        if v_riv <= 0: break
+        v_ret -= dano_riv
+        if v_ret <= 0: break
+
+    ganador = ""
+    if v_ret <= 0 and v_riv <= 0: ganador = "Empate"
+    elif v_ret <= 0: ganador = n_riv
+    elif v_riv <= 0: ganador = n_ret
+
+    narr = await narrar_con_ia("Eres 'El Sistema'. Narra un combate PvP brutal en 3 líneas.", f"{n_ret} atacó a {n_riv}. El ganador fue {ganador}.")
+    if not narr: narr = f"Un choque brutal. {ganador} se alzó con la victoria."
+
+    if ganador == n_ret:
+        cur.execute("UPDATE usuarios SET vida = %s, energia = energia - 1, estrellas = estrellas + 5 WHERE id_telegram = %s", (max(1, v_ret), retador_id))
+        cur.execute("UPDATE usuarios SET vida = %s, energia = energia - 1 WHERE id_telegram = %s", (int(vmax_riv * 0.5), rival_id))
+        premio = f"+5 Estrellas a **{n_ret}**. **{n_riv}** queda al 50% de vida."
+    elif ganador == n_riv:
+        cur.execute("UPDATE usuarios SET vida = %s, energia = energia - 1, estrellas = estrellas + 5 WHERE id_telegram = %s", (max(1, v_riv), rival_id))
+        cur.execute("UPDATE usuarios SET vida = %s, energia = energia - 1 WHERE id_telegram = %s", (int(vmax_ret * 0.5), retador_id))
+        premio = f"+5 Estrellas a **{n_riv}**. **{n_ret}** queda al 50% de vida."
+    else:
+        cur.execute("UPDATE usuarios SET vida = %s, energia = energia - 1 WHERE id_telegram = %s OR id_telegram = %s", (int(vmax_ret * 0.5), retador_id, rival_id))
+        premio = "Empate. Nadie gana Estrellas, ambos pierden Energía y quedan al 50% de vida."
+
+    conn.commit(); cur.close(); conn.close()
+    
+    texto = f"🩸 *RESULTADO DEL DUELO*\n\n{narr}\n\n🏆 Ganador: **{ganador}**\n⭐ {premio}"
+    await query.edit_message_text(texto, parse_mode="Markdown")
+
+async def boton_pvp(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query; await query.answer()
+    user_id = update.effective_user.id
+    data = query.data.split("_")
+    accion = data[1]
+    sala_id = f"{data[2]}_{data[3]}"
+    
+    sala = context.bot_data.get(f"pvp_{sala_id}")
+    if not sala:
+        await query.edit_message_text("🌑 El duelo ya ha terminado.")
+        return
+
+    turno_actual = sala['turno']
+    if turno_actual == 'retador' and user_id != sala['retador_id']:
+        await query.answer("No es tu turno.", show_alert=True); return
+    if turno_actual == 'rival' and user_id != sala['rival_id']:
+        await query.answer("No es tu turno.", show_alert=True); return
+
+    dano = 0
+    if user_id == sala['retador_id']:
+        atacante, defensor = sala['n_ret'], sala['n_riv']
+        c_atacante = sala['c_ret']; c_defensor = sala['c_riv']
+        vida_defensor = sala['v_riv']; vida_atacante = sala['v_ret']
+    else:
+        atacante, defensor = sala['n_riv'], sala['n_ret']
+        c_atacante = sala['c_riv']; c_defensor = sala['c_ret']
+        vida_defensor = sala['v_ret']; vida_atacante = sala['v_riv']
+
+    texto_accion = ""
+    if accion == 'atacar':
+        base = 25 if 'Mago' in c_atacante else 25
+        dano = base + random.randint(1, 10)
+        texto_accion = f"{atacante} ataca con su arma."
+    elif accion == 'habilidad':
+        base = 25 * 1.5 if 'Mago' in c_atacante else 25 * 1.5
+        dano = int(base) + random.randint(5, 15)
+        texto_accion = f"{atacante} usa su habilidad especial."
+    elif accion == 'esquivar':
+        dano = 0
+        texto_accion = f"{atacante} se prepara para esquivar."
+
+    mult = calcular_dano_faccion(c_atacante, "A" if c_defensor in GRUPO_A else "B")
+    dano = int(dano * mult)
+    
+    if mult == 1.5: texto_accion += " ¡Debilidad detectada!"
+    elif mult == 0.5: texto_accion += " El ataque es resistido."
+
+    nueva_vida = max(0, vida_defensor - dano)
+    
+    narr = await narrar_con_ia("Eres 'El Sistema', frío y brutal. Narra el ataque en 2 líneas.", f"{texto_accion} Daño infligido: {dano}.")
+    if not narr: narr = "El golpe impacta con fuerza."
+
+    if user_id == sala['retador_id']:
+        sala['v_riv'] = nueva_vida
+        sala['turno'] = 'rival'
+    else:
+        sala['v_ret'] = nueva_vida
+        sala['turno'] = 'retador'
+
+    if nueva_vida <= 0:
+        ganador = atacante
+        conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
+        ganador_id = sala['retador_id'] if ganador == sala['n_ret'] else sala['rival_id']
+        perdedor_id = sala['rival_id'] if ganador == sala['n_ret'] else sala['retador_id']
+        
+        cur.execute("UPDATE usuarios SET estrellas = estrellas + 5, energia = energia - 1 WHERE id_telegram = %s", (ganador_id,))
+        cur.execute("UPDATE usuarios SET energia = energia - 1 WHERE id_telegram = %s", (perdedor_id,))
+        conn.commit(); cur.close(); conn.close()
+        
+        texto_fin = f"💀 *FIN DEL DUELO*\n\n{narr}\n\n🏆 Ganador: **{ganador}**\n⭐ +5 Estrellas al ganador."
+        await context.bot.send_message(chat_id=sala['retador_id'], text=texto_fin, parse_mode="Markdown")
+        await context.bot.send_message(chat_id=sala['rival_id'], text=texto_fin, parse_mode="Markdown")
+        
+        del context.bot_data[f"pvp_{sala_id}"]
+        return
+
+    texto_resultado = f"🩸 *TURNO*\n\n{narr}\n\n❤️ {sala['n_ret']}: {sala['v_ret']}\n❤️ {sala['n_riv']}: {sala['v_riv']}"
+    
+    if sala['turno'] == 'retador':
+        keyboard = [[InlineKeyboardButton("⚔️ Atacar", callback_data=f'pvp_atacar_{sala_id}')], [InlineKeyboardButton("💨 Esquivar", callback_data=f'pvp_esquivar_{sala_id}')], [InlineKeyboardButton("🔮 Habilidad", callback_data=f'pvp_habilidad_{sala_id}')]]
+        await context.bot.send_message(chat_id=sala['retador_id'], text=f"{texto_resultado}\n\n*Es tu turno.*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await context.bot.send_message(chat_id=sala['rival_id'], text=f"{texto_resultado}\n\n*Esperando el ataque de {sala['n_ret']}...*", parse_mode="Markdown")
+    else:
+        keyboard = [[InlineKeyboardButton("⚔️ Atacar", callback_data=f'pvp_atacar_{sala_id}')], [InlineKeyboardButton("💨 Esquivar", callback_data=f'pvp_esquivar_{sala_id}')], [InlineKeyboardButton("🔮 Habilidad", callback_data=f'pvp_habilidad_{sala_id}')]]
+        await context.bot.send_message(chat_id=sala['rival_id'], text=f"{texto_resultado}\n\n*Es tu turno.*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await context.bot.send_message(chat_id=sala['retador_id'], text=f"{texto_resultado}\n\n*Esperando el ataque de {sala['n_riv']}...*", parse_mode="Markdown")
+
 class WebServer(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200); self.end_headers(); self.wfile.write(b"El Sistema esta vivo.")
@@ -668,6 +850,8 @@ def main():
     app.add_handler(CallbackQueryHandler(equipar_arma, pattern='^equipar_'))
     app.add_handler(CallbackQueryHandler(volver_menu, pattern='^volver_menu$'))
     app.add_handler(CallbackQueryHandler(tienda, pattern='^menu_tienda$'))
+    app.add_handler(CallbackQueryHandler(aceptar_duelo, pattern='^aceptar_duelo_'))
+    app.add_handler(CallbackQueryHandler(boton_pvp, pattern='^pvp_'))
     print("El Sistema ha despertado. Escuchando...")
     app.run_polling(drop_pending_updates=True)
 
