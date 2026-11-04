@@ -15,9 +15,42 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 PORT = int(os.environ.get("PORT", 8080))
 ID_CREADOR = 6985217869
 
-# --- GRUPOS Y BESTIARIO ---
 GRUPO_A = ["Ejecutor", "Asesino", "Arquero"]
 GRUPO_B = ["Mago", "Guardián", "Clérigo"]
+
+# --- CATÁLOGO DE ARMAS (Tiers: 5, 10, 15) ---
+ARMAS = {
+    "ejecutor": [
+        {"nombre": "Espada Corta", "tier": 1, "stat": 5, "precio": 15},
+        {"nombre": "Filo del Eclipse", "tier": 2, "stat": 10, "precio": 40},
+        {"nombre": "Mandoble del Vacío", "tier": 3, "stat": 15, "precio": 100}
+    ],
+    "mago": [
+        {"nombre": "Bastón Astillado", "tier": 1, "stat": 5, "precio": 15},
+        {"nombre": "Cetro del Registro", "tier": 2, "stat": 10, "precio": 40},
+        {"nombre": "Vara de la Creación", "tier": 3, "stat": 15, "precio": 100}
+    ],
+    "guardian": [
+        {"nombre": "Escudo de Madera", "tier": 1, "stat": 5, "precio": 15},
+        {"nombre": "Muro de Obsidiana", "tier": 2, "stat": 10, "precio": 40},
+        {"nombre": "Baluarte del Sistema", "tier": 3, "stat": 15, "precio": 100}
+    ],
+    "asesino": [
+        {"nombre": "Daga de Óxido", "tier": 1, "stat": 5, "precio": 15},
+        {"nombre": "Colmillos Gemelos", "tier": 2, "stat": 10, "precio": 40},
+        {"nombre": "Filos del Silencio", "tier": 3, "stat": 15, "precio": 100}
+    ],
+    "arquero": [
+        {"nombre": "Arco Corto", "tier": 1, "stat": 5, "precio": 15},
+        {"nombre": "Arco de Energía", "tier": 2, "stat": 10, "precio": 40},
+        {"nombre": "Ballesta del Eclipse", "tier": 3, "stat": 15, "precio": 100}
+    ],
+    "clerigo": [
+        {"nombre": "Símbolo Menor", "tier": 1, "stat": 5, "precio": 15},
+        {"nombre": "Reliquia del Alba", "tier": 2, "stat": 10, "precio": 40},
+        {"nombre": "Cetro de Fe", "tier": 3, "stat": 15, "precio": 100}
+    ]
+}
 
 MONSTRUOS = {
     "E": [
@@ -47,7 +80,7 @@ def init_db():
             )
         """)
         cur.execute("DROP TABLE IF EXISTS inventario;")
-        cur.execute("CREATE TABLE IF NOT EXISTS inventario (id_telegram BIGINT, item VARCHAR(50), tipo VARCHAR(20), stat_bonus INT, cantidad INT DEFAULT 1, PRIMARY KEY (id_telegram, item));")
+        cur.execute("CREATE TABLE IF NOT EXISTS inventario (id_telegram BIGINT, item VARCHAR(50), tipo VARCHAR(20), stat_bonus INT, clase_original VARCHAR(20), cantidad INT DEFAULT 1, PRIMARY KEY (id_telegram, item));")
         cur.execute("DROP TABLE IF EXISTS derrotados;")
         cur.execute("CREATE TABLE IF NOT EXISTS derrotados (id_telegram BIGINT, nombre VARCHAR(100), PRIMARY KEY (id_telegram, nombre));")
         cur.execute("DROP TABLE IF EXISTS bestiario_imagenes;")
@@ -60,7 +93,7 @@ async def narrar_con_ia(prompt_sistema, contexto):
     url = "https://text.pollinations.ai/openai"
     payload = {"model": "openai", "messages": [{"role": "system", "content": prompt_sistema}, {"role": "user", "content": contexto}], "max_tokens": 100}
     try:
-        timeout = aiohttp.ClientTimeout(total=15)
+        timeout = aiohttp.ClientTimeout(total=10)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(url, json=payload) as response:
                 if response.status == 200:
@@ -69,36 +102,44 @@ async def narrar_con_ia(prompt_sistema, contexto):
                 return None
     except: return None
 
-async def generar_imagen_sistema(prompt):
-    prompt_mejorado = f"highly detailed dark fantasy concept art, {prompt}, ominous atmosphere, dramatic lighting, 8k resolution"
-    url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(prompt_mejorado)}?width=512&height=512&nologo=false&model=flux"
+def texto_respaldo(tipo, nombre, monstruo=""):
+    if tipo == "historia":
+        return f"El día que el cielo se tiñó de violeta, {nombre} despertó con un poder prohibido. El Sistema lo ha registrado. Ahora debe sobrevivir."
+    elif tipo == "combate":
+        opciones = [
+            f"El Sujeto {nombre} ataca con fiereza. El monstruo {monstruo} responde con un zarpazo que hace sangrar el aire.",
+            f"El acero choca contra la piel de {monstruo}. {nombre} siente el dolor, pero no se detiene.",
+            f"Un golpe brutal. {monstruo} ruge y {nombre} retrocede. El Sistema observa en silencio."
+        ]
+        return random.choice(opciones)
+    return ""
+
+async def generar_imagen_sistema(prompt, es_monstruo=False):
+    if es_monstruo:
+        prompt_mejorado = f"epic fantasy monster concept art, {prompt}, glowing eyes, cinematic lighting, masterpiece, detailed"
+    else:
+        prompt_mejorado = f"anime style portrait of a {prompt}, beautiful detailed eyes, dark fantasy aesthetic, glowing neon aura, masterpiece, highly detailed"
+    
+    url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(prompt_mejorado)}?width=512&height=512&nologo=false&model=turbo"
     try:
         timeout = aiohttp.ClientTimeout(total=45)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(url) as response:
                 if response.status == 200: return await response.read()
                 return None
-    except Exception as e: 
-        print(f"❌ Error Imagen: {e}")
-        return None
+    except: return None
 
-# --- LÓGICA DE FACCIÓN ---
 def calcular_dano_faccion(clase_jugador, grupo_monstruo):
-    if "Jefe" in grupo_monstruo: # Los jefes no tienen grupo de debilidad
-        return 1.0
+    if grupo_monstruo == "C": return 1.0 
     en_grupo_a = clase_jugador in GRUPO_A or clase_jugador.replace("a", "").capitalize() in GRUPO_A
-    en_grupo_b = clase_jugador in GRUPO_B or clase_jugador.replace("a", "").capitalize() in GRUPO_B
-    
-    if grupo_monstruo == "A":
-        return 1.5 if en_grupo_b else 0.5
-    else:
-        return 1.5 if en_grupo_a else 0.5
+    if grupo_monstruo == "A": return 1.5 if not en_grupo_a else 0.5
+    else: return 1.5 if en_grupo_a else 0.5
 
 def calcular_multiplicador_exp(clase_jugador, grupo_monstruo):
     dano_mult = calcular_dano_faccion(clase_jugador, grupo_monstruo)
-    if dano_mult == 1.5: return 1.0 # Fácil
-    elif dano_mult == 0.5: return 2.0 # Difícil
-    else: return 1.5 # Neutral
+    if dano_mult == 1.5: return 1.0
+    elif dano_mult == 0.5: return 2.0
+    else: return 1.5
 
 async def limpiar_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for clave in ['msg_bienvenida', 'msg_error', 'msg_perfil', 'msg_combate', 'msg_tienda', 'msg_creador', 'msg_pregunta_sexo', 'msg_pregunta_clase', 'msg_transicion']:
@@ -121,7 +162,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     resultado = cur.fetchone()
     if resultado and resultado[0] is not None:
         cur.close(); conn.close()
-        msg = await update.message.reply_text("🌑 *Regreso detectado.*\nUsa los botones de abajo.", reply_markup=obtener_menu_fijo(), parse_mode="Markdown")
+        msg = await update.message.reply_text("🌑 *Regreso detectado.*", reply_markup=obtener_menu_fijo(), parse_mode="Markdown")
         context.user_data['msg_bienvenida'] = msg.message_id
         return
     context.user_data['estado'] = 'esperando_nombre'
@@ -162,7 +203,7 @@ async def manejar_mensajes(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cur.execute("UPDATE usuarios SET estrellas = estrellas + %s WHERE id_telegram = %s", (cantidad, target_id))
             conn.commit(); cur.close(); conn.close()
             await update.message.reply_text(f"⭐ Has regalado {cantidad} Estrellas al ID {target_id}.")
-        except: await update.message.reply_text("❌ Formato incorrecto. Usa: `ID CANTIDAD`", parse_mode="Markdown")
+        except: await update.message.reply_text("❌ Formato incorrecto.", parse_mode="Markdown")
         context.user_data['estado'] = 'en_menu'
         return
 
@@ -177,7 +218,11 @@ async def boton_sexo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('estado') != 'esperando_sexo': return
     context.user_data['sexo_temp'] = "M" if query.data == 'sexo_m' else "F"
     context.user_data['estado'] = 'esperando_clase'
-    keyboard = [[InlineKeyboardButton("⚔️ Ejecutor/a", callback_data='clase_ejecutor')], [InlineKeyboardButton("🔮 Mago/a", callback_data='clase_mago')], [InlineKeyboardButton("🛡️ Guardián/na", callback_data='clase_guardian')], [InlineKeyboardButton("🗡️ Asesino/a", callback_data='clase_asesino')], [InlineKeyboardButton("🏹 Arquero/a", callback_data='clase_arquero')], [InlineKeyboardButton("✨ Clérigo/a", callback_data='clase_clerigo')]]
+    # --- CLASES 3 Y 3 ---
+    keyboard = [
+        [InlineKeyboardButton("⚔️ Ejecutor", callback_data='clase_ejecutor'), InlineKeyboardButton("🔮 Mago", callback_data='clase_mago'), InlineKeyboardButton("🛡️ Guardián", callback_data='clase_guardian')],
+        [InlineKeyboardButton("🗡️ Asesino", callback_data='clase_asesino'), InlineKeyboardButton("🏹 Arquero", callback_data='clase_arquero'), InlineKeyboardButton("✨ Clérigo", callback_data='clase_clerigo')]
+    ]
     try: await query.edit_message_text("Sexo registrado.\n\n**Elige tu clase:**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     except: await context.bot.send_message(chat_id=update.effective_chat.id, text="Sexo registrado.\n\n**Elige tu clase:**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
@@ -202,28 +247,27 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🏅 Rango: **E** | 📊 Nivel: **1**\n\n❤️ Vida: {s['vida']} | 🔮 Maná: {s['mana']}\n⚔️ ATQ: {s['atq']} | 💨 MOV: {s['mov']}\n🧠 INT: {s['intel']} | 🛡️ RES: {s['res']} | 🎯 TAC: {s['tac']}\n\n🌑 *El Sistema te da la bienvenida.*")
     msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=texto_final, parse_mode="Markdown")
     context.user_data['msg_perfil'] = msg.message_id
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="Usa los botones de abajo.", reply_markup=obtener_menu_fijo())
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="​", reply_markup=obtener_menu_fijo())
     context.user_data['estado'] = 'en_menu'
 
     async def guardar_y_generar():
         conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
-        
         msg_trans = await context.bot.send_message(chat_id=update.effective_chat.id, text="🔮 *El Oráculo de Pollinations te está escaneando...*", parse_mode="Markdown")
         
         prompt_historia = f"Eres 'El Sistema'. Escribe una historia de origen épica y oscura (máximo 3 líneas) para un personaje llamado {nombre_elegido}, que es un {clase_final} en un mundo post-apocalíptico llamado 'El Eclipse'."
         historia_ia = await narrar_con_ia(prompt_historia, f"Genera la historia para {nombre_elegido}.")
-        historia_final = historia_ia if historia_ia else f"El día que el cielo se tiñó de violeta, {nombre_elegido} despertó con el poder de un {clase_final}."
+        historia_final = historia_ia if historia_ia else texto_respaldo("historia", nombre_elegido)
         
         cur.execute("INSERT INTO usuarios (id_telegram, nombre, clase, sexo, rango, historia, vida, vida_max, mana, mana_max, atq, mov, intel, res, tac, estrellas) VALUES (%s, %s, %s, %s, 'E', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0) ON CONFLICT (id_telegram) DO NOTHING", 
                     (user_id, nombre_elegido, clase_final, sexo_elegido, historia_final, s['vida'], s['vida'], s['mana'], s['mana'], s['atq'], s['mov'], s['intel'], s['res'], s['tac']))
         conn.commit(); cur.close(); conn.close()
 
         genero_ingles = "man" if sexo_elegido == 'M' else "woman"
-        detalles_clase = {'ejecutor': "massive greatsword, dark heavy armor, neon purple accents", 'mago': "floating crystal staff, dark robes, glowing runes", 'guardian': "massive spiked armor, giant shield", 'asesino': "dark hooded cloak, dual daggers", 'arquero': "glowing energy bow, light leather armor", 'clerigo': "ornate dark robes, glowing holy symbol"}
+        detalles_clase = {'ejecutor': "massive greatsword, dark heavy armor", 'mago': "floating crystal staff, dark robes", 'guardian': "massive spiked armor, giant shield", 'asesino': "dark hooded cloak, dual daggers", 'arquero': "glowing energy bow", 'clerigo': "ornate dark robes, glowing holy symbol"}
         detalle = detalles_clase.get(clase_base, "dark fantasy armor")
-        prompt = f"portrait of a {genero_ingles} {clase_final}, {detalle}"
+        prompt = f"{genero_ingles} {clase_final}, {detalle}"
         
-        image_bytes = await generar_imagen_sistema(prompt)
+        image_bytes = await generar_imagen_sistema(prompt, es_monstruo=False)
         
         texto_foto = (f"🌑 *REGISTRO VISUAL - FACCIÓN POLLINATIONS*\n\n👤 Sujeto: **{nombre_elegido}**\n\n📖 *Historia:*\n{historia_final}\n\n⚠️ *Marca:* El sello es la firma del Consejo.")
         
@@ -245,8 +289,9 @@ async def perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user:
         (nombre, clase, sexo, rango, nivel, exp, vida, vida_max, mana, mana_max, atq, mov, intel, res, tac, historia, energia, estrellas, arma_equipada) = user
         icono_sexo = "♂️" if sexo == 'M' else "♀️"
+        exp_necesaria = nivel * 100
         texto = (f"🌑 *FICHA DEL SISTEMA*\n\n👤 Sujeto: **{nombre}**\n⚔️ Clase: **{clase}**\n{icono_sexo} Sexo: **{'Masculino' if sexo == 'M' else 'Femenino'}**\n"
-            f"🏅 Rango: **{rango}** | 📊 Nivel: **{nivel}** (EXP: {exp}/{nivel*100})\n\n📖 *Historia:*\n{historia}\n\n"
+            f"🏅 Rango: **{rango}** | 📊 Nivel: **{nivel}** (EXP: {exp}/{exp_necesaria})\n\n📖 *Historia:*\n{historia}\n\n"
             f"🗡️ Arma: **{arma_equipada}**\n❤️ Vida: {vida}/{vida_max} | 🔮 Maná: {mana}/{mana_max}\n"
             f"⚔️ ATQ: {atq} | 💨 MOV: {mov} | 🧠 INT: {intel}\n🛡️ RES: {res} | 🎯 TAC: {tac}\n\n⚡ *Energía:* {energia}/5 | ⭐ *Estrellas:* {estrellas}")
         msg = await update.message.reply_text(texto, parse_mode="Markdown")
@@ -269,7 +314,6 @@ async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     nivel, clase = user[4], user[5]
     rango_jugador = user[2]
     
-    # Lógica del Jefe Automático
     cur.execute("SELECT COUNT(*) FROM derrotados WHERE id_telegram = %s", (user_id,))
     derrotados_count = cur.fetchone()[0]
     
@@ -283,7 +327,7 @@ async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         derrotados = [row[0] for row in cur.fetchall()]
         disponibles = [e for e in enemigos_rango if e['nombre'] not in derrotados]
         if not disponibles:
-            msg = await update.message.reply_text("🌑 *Has derrotado a todos. El Sistema prepara el siguiente nivel.*", parse_mode="Markdown"); cur.close(); conn.close(); return
+            msg = await update.message.reply_text("🌑 *Has derrotado a todos.*", parse_mode="Markdown"); cur.close(); conn.close(); return
         monstruo = random.choice(disponibles)
 
     cur.execute("UPDATE usuarios SET en_combate = TRUE, monstruo_hp = %s, monstruo_nombre = %s, energia = energia - 1 WHERE id_telegram = %s", (monstruo['hp'], monstruo['nombre'], user_id))
@@ -292,11 +336,9 @@ async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['monstruo'] = monstruo
     context.user_data['es_jefe'] = es_jefe
     
-    # Ocultamos el menú y mostramos transición
-    msg_trans = await update.message.reply_text("🌀 *Abriendo portal...* El Sistema está escaneando la amenaza.", reply_markup=ReplyKeyboardRemove(), parse_mode="Markdown")
+    msg_trans = await update.message.reply_text("🌀 *Abriendo portal...*", reply_markup=ReplyKeyboardRemove(), parse_mode="Markdown")
     
     async def transicion_y_combate():
-        # Caché de Imágenes
         conn_img = psycopg2.connect(DATABASE_URL, sslmode='require'); cur_img = conn_img.cursor()
         cur_img.execute("SELECT imagen FROM bestiario_imagenes WHERE nombre = %s", (monstruo['nombre'],))
         row = cur_img.fetchone()
@@ -304,8 +346,8 @@ async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if row:
             image_bytes = bytes(row[0])
         else:
-            prompt_m = f"monster {monstruo['nombre']}, dark fantasy concept art"
-            image_bytes = await generar_imagen_sistema(prompt_m)
+            prompt_m = f"monster {monstruo['nombre']}"
+            image_bytes = await generar_imagen_sistema(prompt_m, es_monstruo=True)
             if image_bytes:
                 try:
                     cur_img.execute("INSERT INTO bestiario_imagenes (nombre, imagen) VALUES (%s, %s) ON CONFLICT DO NOTHING", (monstruo['nombre'], psycopg2.Binary(image_bytes)))
@@ -316,7 +358,13 @@ async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try: await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_trans.message_id)
         except: pass
         
-        keyboard = [[InlineKeyboardButton("⚔️ Atacar", callback_data='combate_atacar'), InlineKeyboardButton("💨 Esquivar", callback_data='combate_esquivar')], [InlineKeyboardButton("🔮 Habilidad", callback_data='combate_habilidad'), InlineKeyboardButton("🏃 Huir", callback_data='combate_huir')]]
+        # --- BOTONES DE COMBATE (ANCHO COMPLETO) ---
+        keyboard = [
+            [InlineKeyboardButton("⚔️ ATACAR", callback_data='combate_atacar')],
+            [InlineKeyboardButton("💨 ESQUIVAR", callback_data='combate_esquivar')],
+            [InlineKeyboardButton("🔮 HABILIDAD", callback_data='combate_habilidad')],
+            [InlineKeyboardButton("🏃 HUIR", callback_data='combate_huir')]
+        ]
         
         titulo = "👑 *JEFE FINAL*" if es_jefe else "🩸 *PORTAL ABIERTO*"
         texto = f"{titulo}\n\n**{monstruo['nombre']}** ha aparecido.\n❤️ Vida: {monstruo['hp']}\n\n*¿Qué harás?*"
@@ -360,9 +408,17 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if random.randint(1, 100) <= (mov * 2):
             accion_texto = f"{nombre} intenta huir."; result_texto = "Escapa."
             cur.execute("UPDATE usuarios SET en_combate = FALSE WHERE id_telegram = %s", (user_id,)); conn.commit(); cur.close(); conn.close()
-            try: await query.edit_message_caption(caption="🌑 *Has vuelto al Refugio.*", parse_mode="Markdown")
-            except: await query.edit_message_text("🌑 *Has vuelto al Refugio.*", parse_mode="Markdown")
-            context.user_data['estado'] = 'en_menu'; await context.bot.send_message(chat_id=update.effective_chat.id, text="Usa los botones de abajo.", reply_markup=obtener_menu_fijo()); return
+            
+            narr = "🌑 *Has escapado.* La oscuridad del portal se cierra tras de ti. No hay recompensa para los cobardes, pero vives para pelear otro día."
+            try: await query.edit_message_caption(caption=narr, parse_mode="Markdown")
+            except: await query.edit_message_text(narr, parse_mode="Markdown")
+            
+            msg_foto_id = context.user_data.get('msg_combate')
+            if msg_foto_id:
+                try: await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_foto_id)
+                except: pass
+                
+            context.user_data['estado'] = 'en_menu'; await context.bot.send_message(chat_id=update.effective_chat.id, text="​", reply_markup=obtener_menu_fijo()); return
         else:
             dano_recibido = monstruo['atk'] + random.randint(1, 5); vida -= dano_recibido
             accion_texto = f"{nombre} intenta huir."; result_texto = f"Falla. {dano_recibido} de daño."
@@ -388,8 +444,8 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if dano > 0:
             mult = calcular_dano_faccion(clase, monstruo['grupo'])
             dano = int(dano * mult)
-            if mult == 1.5: accion_texto += " ¡El Sistema detecta una debilidad! "
-            elif mult == 0.5: accion_texto += " El ataque es resistido. "
+            if mult == 1.5: accion_texto += " ¡Debilidad detectada! "
+            elif mult == 0.5: accion_texto += " Ataque resistido. "
             
         hp_monstruo -= dano
         if hp_monstruo < 0: hp_monstruo = 0
@@ -401,7 +457,8 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     contexto_ia = f"Acción: {accion_texto}. Resultado: {result_texto}." + (f" Gritó: '{frase}'." if frase else "")
     narracion_epica = await narrar_con_ia("Eres 'El Sistema', frío y brutal. Narra la acción en 3 líneas.", contexto_ia)
-    if not narracion_epica: narracion_epica = "El Sistema registra el impacto en silencio."
+    if not narracion_epica: 
+        narracion_epica = texto_respaldo("combate", nombre, monstruo['nombre'])
     
     if hp_monstruo <= 0:
         if es_jefe:
@@ -410,14 +467,13 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cur.execute("UPDATE usuarios SET rango = %s, vida = %s, mana = %s, en_combate = FALSE, energia = 5 WHERE id_telegram = %s", (nuevo_rango, vida, mana, user_id))
         else:
             mult_exp = calcular_multiplicador_exp(clase, monstruo['grupo'])
-            exp_ganada = int((monstruo['exp'] * mult_exp) / nivel) if nivel > 1 else int(monstruo['exp'] * mult_exp)
+            exp_ganada = int(monstruo['exp'] * mult_exp)
             narracion_epica += f"\n\n💀 **{monstruo['nombre']} ha muerto.**\n🌟 *+{exp_ganada} EXP.*"
             exp += exp_ganada
             nuevo_rango = rango
-            # Tabla exacta de EXP (Límite Rango E: 750 EXP)
-            limites = {1:50, 2:110, 3:180, 4:260, 5:350, 6:450, 7:550, 8:650, 9:750}
-            if nivel in limites and exp >= limites[nivel] and nivel < 10:
-                exp -= limites[nivel]
+            exp_necesaria = nivel * 100
+            if exp >= exp_necesaria and nivel < 10:
+                exp -= exp_necesaria
                 nivel += 1
                 vida_max += 20; vida = vida_max; atq += 2; mov += 1; intel += 2
                 narracion_epica += f"\n\n⬆️ **¡NIVEL {nivel}!**"
@@ -426,49 +482,100 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cur.execute("UPDATE usuarios SET vida = %s, vida_max = %s, mana = %s, atq = %s, mov = %s, intel = %s, exp = %s, nivel = %s, rango = %s, en_combate = FALSE, energia = 5 WHERE id_telegram = %s", (vida, vida_max, mana, atq, mov, intel, exp, nivel, nuevo_rango, user_id))
             
         conn.commit(); cur.close(); conn.close()
-        try: await query.edit_message_caption(caption=f"{narracion_epica}\n\n🌑 *Refugio.*", parse_mode="Markdown")
-        except: await query.edit_message_text(f"{narracion_epica}\n\n🌑 *Refugio.*", parse_mode="Markdown")
-        context.user_data['estado'] = 'en_menu'; await context.bot.send_message(chat_id=update.effective_chat.id, text="Menú activado.", reply_markup=obtener_menu_fijo()); return
+        
+        try: await query.edit_message_caption(caption=f"{narracion_epica}", parse_mode="Markdown")
+        except: await query.edit_message_text(f"{narracion_epica}", parse_mode="Markdown")
+        
+        # Borrar foto del monstruo
+        msg_foto_id = context.user_data.get('msg_combate')
+        if msg_foto_id:
+            try: await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_foto_id)
+            except: pass
+            
+        context.user_data['estado'] = 'en_menu'; await context.bot.send_message(chat_id=update.effective_chat.id, text="​", reply_markup=obtener_menu_fijo()); return
         
     if vida <= 0:
-        narracion_epica += f"\n\n☠️ **Has muerto.** Bloqueado 1 hora."
+        narracion_epica += f"\n\n☠️ **Has muerto.** El Sistema te castiga con 1 hora de bloqueo."
         bloqueo = datetime.datetime.now() + datetime.timedelta(hours=1)
         cur.execute("UPDATE usuarios SET vida = 0, en_combate = FALSE, bloqueo_hasta = %s WHERE id_telegram = %s", (bloqueo, user_id))
         conn.commit(); cur.close(); conn.close()
-        try: await query.edit_message_caption(caption=f"{narracion_epica}\n\n🌑 *Castigo.*", parse_mode="Markdown")
-        except: await query.edit_message_text(f"{narracion_epica}\n\n🌑 *Castigo.*", parse_mode="Markdown")
-        context.user_data['estado'] = 'en_menu'; await context.bot.send_message(chat_id=update.effective_chat.id, text="Menú activado.", reply_markup=obtener_menu_fijo()); return
+        
+        try: await query.edit_message_caption(caption=f"{narracion_epica}", parse_mode="Markdown")
+        except: await query.edit_message_text(f"{narracion_epica}", parse_mode="Markdown")
+        
+        msg_foto_id = context.user_data.get('msg_combate')
+        if msg_foto_id:
+            try: await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_foto_id)
+            except: pass
+            
+        context.user_data['estado'] = 'en_menu'; await context.bot.send_message(chat_id=update.effective_chat.id, text="​", reply_markup=obtener_menu_fijo()); return
         
     cur.execute("UPDATE usuarios SET vida = %s, mana = %s, monstruo_hp = %s WHERE id_telegram = %s", (vida, mana, hp_monstruo, user_id))
     conn.commit(); cur.close(); conn.close()
     
-    keyboard = [[InlineKeyboardButton("⚔️ Atacar", callback_data='combate_atacar'), InlineKeyboardButton("💨 Esquivar", callback_data='combate_esquivar')], [InlineKeyboardButton("🔮 Habilidad", callback_data='combate_habilidad'), InlineKeyboardButton("🏃 Huir", callback_data='combate_huir')]]
+    keyboard = [
+        [InlineKeyboardButton("⚔️ ATACAR", callback_data='combate_atacar')],
+        [InlineKeyboardButton("💨 ESQUIVAR", callback_data='combate_esquivar')],
+        [InlineKeyboardButton("🔮 HABILIDAD", callback_data='combate_habilidad')],
+        [InlineKeyboardButton("🏃 HUIR", callback_data='combate_huir')]
+    ]
     try: await query.edit_message_caption(caption=f"{narracion_epica}\n\n❤️ Vida: {vida}/{vida_max} | 🔮 Maná: {mana}\n🩸 {monstruo['nombre']}: {hp_monstruo}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     except: await query.edit_message_text(f"{narracion_epica}\n\n❤️ Vida: {vida}/{vida_max} | 🔮 Maná: {mana}\n🩸 {monstruo['nombre']}: {hp_monstruo}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
-# --- RESTO DE FUNCIONES (TIENDA, ETC) ---
 async def tienda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id; await limpiar_chat(update, context)
     conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
     cur.execute("SELECT estrellas FROM usuarios WHERE id_telegram = %s", (user_id,))
     estrellas = cur.fetchone()[0]; cur.close(); conn.close()
-    keyboard = [[InlineKeyboardButton("🧪 Pociones", callback_data='tienda_pociones'), InlineKeyboardButton("🎁 Cajas", callback_data='tienda_cajas')], [InlineKeyboardButton("💍 Pactos", callback_data='tienda_pactos'), InlineKeyboardButton("👑 Bendiciones", callback_data='tienda_bendiciones')], [InlineKeyboardButton("🔙 Volver al Menú", callback_data='volver_menu')]]
-    msg = await update.message.reply_text(f"🛒 *MERCADO*\n⭐ Estrellas: **{estrellas}**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    keyboard = [
+        [InlineKeyboardButton("🧪 POCIONES", callback_data='tienda_pociones')],
+        [InlineKeyboardButton("⚔️ ARMERÍA", callback_data='tienda_armeria')],
+        [InlineKeyboardButton("🎁 CAJAS MISTERIOSAS", callback_data='tienda_cajas')],
+        [InlineKeyboardButton("👑 BENDICIONES", callback_data='tienda_bendiciones')],
+        [InlineKeyboardButton("🔙 VOLVER AL MENÚ", callback_data='volver_menu')]
+    ]
+    msg = await update.message.reply_text(f"🛒 *MERCADO DEL SISTEMA*\n⭐ Estrellas: **{estrellas}**\n\nElige una categoría:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     context.user_data['msg_tienda'] = msg.message_id
 
 async def tienda_pociones(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
-    keyboard = [[InlineKeyboardButton("🧪 Poción Vida (50 HP) - 5⭐", callback_data='comprar_pocion_vida')], [InlineKeyboardButton("🔮 Poción Maná (50 MP) - 5⭐", callback_data='comprar_pocion_mana')], [InlineKeyboardButton("🧪 Elixir Completo - 15⭐", callback_data='comprar_elixir')], [InlineKeyboardButton("🔙 Volver", callback_data='menu_tienda')]]
-    await query.edit_message_text("🧪 *POCIONES*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    texto = ("🧪 *POCIONES*\n\n• *Poción de Vida (5⭐):* Restaura 50 HP.\n• *Poción de Maná (5⭐):* Restaura 50 MP.\n• *Elixir Completo (15⭐):* Restaura toda la Vida y Maná.")
+    keyboard = [[InlineKeyboardButton("🧪 Comprar Poción Vida - 5⭐", callback_data='comprar_pocion_vida')], [InlineKeyboardButton("🔮 Comprar Poción Maná - 5⭐", callback_data='comprar_pocion_mana')], [InlineKeyboardButton("🧪 Comprar Elixir Completo - 15⭐", callback_data='comprar_elixir')], [InlineKeyboardButton("🔙 Volver", callback_data='menu_tienda')]]
+    await query.edit_message_text(texto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+async def tienda_armeria(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query; await query.answer()
+    texto = ("⚔️ *ARMERÍA DEL SISTEMA*\n\nEl Sistema te permite comprar armas de tu clase o de otras (con penalización).")
+    keyboard = [
+        [InlineKeyboardButton("⚔️ Armas de Ejecutor", callback_data='armeria_ejecutor')],
+        [InlineKeyboardButton("🔮 Armas de Mago", callback_data='armeria_mago')],
+        [InlineKeyboardButton("🛡️ Armas de Guardián", callback_data='armeria_guardian')],
+        [InlineKeyboardButton("🗡️ Armas de Asesino", callback_data='armeria_asesino')],
+        [InlineKeyboardButton("🏹 Armas de Arquero", callback_data='armeria_arquero')],
+        [InlineKeyboardButton("✨ Armas de Clérigo", callback_data='armeria_clerigo')],
+        [InlineKeyboardButton("🔙 Volver", callback_data='menu_tienda')]
+    ]
+    await query.edit_message_text(texto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+async def armeria_categoria(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query; await query.answer()
+    clase_arma = query.data.replace('armeria_', '')
+    armas_lista = ARMAS.get(clase_arma, [])
+    
+    texto = f"⚔️ *ARMAS DE {clase_arma.upper()}*\n\n"
+    keyboard = []
+    for arma in armas_lista:
+        texto += f"• *{arma['nombre']}* (Tier {arma['tier']}) - +{arma['stat']} Stats | {arma['precio']}⭐\n"
+        keyboard.append([InlineKeyboardButton(f"Comprar {arma['nombre']} - {arma['precio']}⭐", callback_data=f"comprar_arma_{arma['nombre']}_{clase_arma}")])
+        
+    keyboard.append([InlineKeyboardButton("🔙 Volver", callback_data='tienda_armeria')])
+    await query.edit_message_text(texto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def tienda_cajas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
-    keyboard = [[InlineKeyboardButton("📦 Caja Común - 10⭐", callback_data='comprar_caja_comun')], [InlineKeyboardButton("🎁 Cofre Épico - 30⭐", callback_data='comprar_cofre_epico')], [InlineKeyboardButton("🔙 Volver", callback_data='menu_tienda')]]
-    await query.edit_message_text("🎁 *CAJAS*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-
-async def tienda_pactos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query; await query.answer()
-    await query.answer("💍 El Sistema aún no permite pactos de sangre.", show_alert=True)
+    texto = ("🎁 *CAJAS MISTERIOSAS*\n\n• *Caja Común (10⭐):* 70% Poción | 30% Arma Común.\n• *Cofre Épico (30⭐):* 50% Arma Rara | 50% Elixir.")
+    keyboard = [[InlineKeyboardButton("📦 Comprar Caja Común - 10⭐", callback_data='comprar_caja_comun')], [InlineKeyboardButton("🎁 Comprar Cofre Épico - 30⭐", callback_data='comprar_cofre_epico')], [InlineKeyboardButton("🔙 Volver", callback_data='menu_tienda')]]
+    await query.edit_message_text(texto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def tienda_bendiciones(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
@@ -476,12 +583,45 @@ async def tienda_bendiciones(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def comprar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer(); user_id = update.effective_user.id
-    item = query.data.replace('comprar_', ''); precios = {'pocion_vida': 5, 'pocion_mana': 5, 'elixir': 15, 'caja_comun': 10, 'cofre_epico': 30}
-    precio = precios.get(item, 0); conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
+    item = query.data.replace('comprar_', '')
+    
+    if item.startswith("arma_"):
+        partes = item.split("_")
+        nombre_arma = partes[1]
+        clase_original = partes[2]
+        precio = 15 if "Tier 1" in nombre_arma else 40 # Simplificado para el ejemplo
+        # Buscamos el precio real
+        for c, armas_lista in ARMAS.items():
+            for a in armas_lista:
+                if a['nombre'] == nombre_arma:
+                    precio = a['precio']
+                    stat_bonus = a['stat']
+                    break
+        
+        conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
+        cur.execute("SELECT estrellas, clase FROM usuarios WHERE id_telegram = %s", (user_id,))
+        estrellas, clase_jugador = cur.fetchone()
+        
+        if estrellas < precio: await query.answer("❌ Sin Estrellas.", show_alert=True); return
+        
+        # Penalización por herejía
+        if clase_jugador.lower() != clase_original.lower():
+            stat_bonus = stat_bonus // 2
+            
+        cur.execute("UPDATE usuarios SET estrellas = estrellas - %s WHERE id_telegram = %s", (precio, user_id))
+        cur.execute("INSERT INTO inventario (id_telegram, item, tipo, stat_bonus, clase_original, cantidad) VALUES (%s, %s, 'arma', %s, %s, 1) ON CONFLICT (id_telegram, item) DO UPDATE SET cantidad = inventario.cantidad + 1", (user_id, nombre_arma, stat_bonus, clase_original))
+        conn.commit(); cur.close(); conn.close()
+        await query.edit_message_text(f"✅ Has comprado **{nombre_arma}**.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data='menu_tienda')]]), parse_mode="Markdown")
+        return
+
+    precios = {'pocion_vida': 5, 'pocion_mana': 5, 'elixir': 15, 'caja_comun': 10, 'cofre_epico': 30}
+    precio = precios.get(item, 0)
+    conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
     cur.execute("SELECT estrellas FROM usuarios WHERE id_telegram = %s", (user_id,))
     estrellas = cur.fetchone()[0]
     if estrellas < precio: await query.answer("❌ Sin Estrellas.", show_alert=True); return
     cur.execute("UPDATE usuarios SET estrellas = estrellas - %s WHERE id_telegram = %s", (precio, user_id))
+    
     if item == 'pocion_vida':
         cur.execute("INSERT INTO inventario (id_telegram, item, tipo, cantidad) VALUES (%s, 'Poción de Vida', 'pocion', 1) ON CONFLICT (id_telegram, item) DO UPDATE SET cantidad = inventario.cantidad + 1", (user_id,)); msg = "✅ Poción Vida."
     elif item == 'pocion_mana':
@@ -528,7 +668,7 @@ async def equipar_arma(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def volver_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
     await query.edit_message_text("🌑 *Menú.*", parse_mode="Markdown")
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="Menú activado.", reply_markup=obtener_menu_fijo())
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="​", reply_markup=obtener_menu_fijo())
 
 async def creador(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ID_CREADOR: return
@@ -564,8 +704,9 @@ def main():
     app.add_handler(CallbackQueryHandler(boton_combate, pattern='^combate_'))
     app.add_handler(CallbackQueryHandler(boton_creador, pattern='^admin_'))
     app.add_handler(CallbackQueryHandler(tienda_pociones, pattern='^tienda_pociones$'))
+    app.add_handler(CallbackQueryHandler(tienda_armeria, pattern='^tienda_armeria$'))
+    app.add_handler(CallbackQueryHandler(armeria_categoria, pattern='^armeria_'))
     app.add_handler(CallbackQueryHandler(tienda_cajas, pattern='^tienda_cajas$'))
-    app.add_handler(CallbackQueryHandler(tienda_pactos, pattern='^tienda_pactos$'))
     app.add_handler(CallbackQueryHandler(tienda_bendiciones, pattern='^tienda_bendiciones$'))
     app.add_handler(CallbackQueryHandler(comprar, pattern='^comprar_'))
     app.add_handler(CallbackQueryHandler(equipar_arma, pattern='^equipar_'))
