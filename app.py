@@ -83,7 +83,9 @@ def init_db():
 
 # --- FUNCIÓN NARRADORA CON GROQ ---
 async def narrar_con_ia(prompt_sistema, contexto):
-    if not GROQ_API_KEY: return None 
+    if not GROQ_API_KEY: 
+        print("❌ GROQ_API_KEY no configurada.")
+        return None 
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     payload = {"model": "llama-3.1-8b-instant", "messages": [{"role": "system", "content": prompt_sistema}, {"role": "user", "content": contexto}], "max_tokens": 100, "temperature": 0.8}
@@ -94,8 +96,12 @@ async def narrar_con_ia(prompt_sistema, contexto):
                 if response.status == 200:
                     data = await response.json()
                     return data['choices'][0]['message']['content'].strip().replace('*', '').replace('_', '')
-                return None
-    except: return None
+                else:
+                    print(f"❌ Error Groq API: {response.status}")
+                    return None
+    except Exception as e: 
+        print(f"❌ Error Groq Excepcion: {e}")
+        return None
 
 # --- LIMPIAR CHAT ---
 async def limpiar_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -253,8 +259,12 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.commit(); cur.close(); conn.close()
 
         texto_foto = f"🌑 *REGISTRO VISUAL*\n\n👤 Sujeto: **{nombre_elegido}**\n\n📖 *Historia:*\n{historia_final}\n\n💡 *Sugerencia:* Guarda esta imagen y úsala en tu perfil de Telegram."
-        try: await context.bot.send_photo(chat_id=update.effective_chat.id, photo=foto_url, caption=texto_foto, parse_mode="Markdown")
-        except Exception as e: print(f"Error foto: {e}")
+        try: 
+            await context.bot.send_photo(chat_id=update.effective_chat.id, photo=foto_url, caption=texto_foto, parse_mode="Markdown")
+        except Exception as e: 
+            print(f"Error foto: {e}")
+            # Si falla la foto, avisamos en el chat
+            await context.bot.send_message(chat_id=update.effective_chat.id, text="⚠️ El Sistema no pudo generar tu imagen visual, pero tu historia ha sido guardada.")
 
     asyncio.create_task(guardar_y_generar())
 
@@ -282,7 +292,7 @@ async def perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg = await update.message.reply_text(texto, parse_mode="Markdown")
             context.user_data['msg_perfil'] = msg.message_id
 
-# --- PORTAL (SELECCIÓN ALEATORIA Y EVITANDO REPETIDOS) ---
+# --- PORTAL (CON SELECCIÓN ALEATORIA Y EVITANDO REPETIDOS) ---
 async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await limpiar_chat(update, context)
@@ -404,8 +414,6 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 result_texto = "No tiene maná. El ataque falla."
         
         if dano > 0:
-            # --- LÓGICA DE DEBILIDAD Y RESISTENCIA ---
-            # Buscamos si la clase base (ej: 'Mago' dentro de 'Maga') coincide con la debilidad
             clase_limpia = clase.replace("a", "").replace("á", "").capitalize()
             if monstruo['debilidad'] in clase_limpia or clase_limpia in monstruo['debilidad']:
                 dano = int(dano * 1.5)
@@ -434,13 +442,9 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not narracion_epica: narracion_epica = "El Sistema registra el impacto en silencio."
     
     if hp_monstruo <= 0:
-        # --- CÁLCULO DE EXP ESCALABLE ---
         exp_base = monstruo['exp']
-        # Si el jugador es de nivel más alto que el monstruo, gana menos EXP
-        if nivel > 1:
-            exp_ganada = int(exp_base * (1 / nivel))
-        else:
-            exp_ganada = exp_base
+        if nivel > 1: exp_ganada = int(exp_base * (1 / nivel))
+        else: exp_ganada = exp_base
             
         narracion_epica += f"\n\n💀 **{monstruo['nombre']} ha muerto.**\n🌟 *+{exp_ganada} EXP.*"
         exp += exp_ganada
