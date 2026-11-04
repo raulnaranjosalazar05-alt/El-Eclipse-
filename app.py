@@ -1,6 +1,7 @@
 import os
 import threading
 import psycopg2
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
@@ -14,7 +15,6 @@ def init_db():
     try:
         conn = psycopg2.connect(DATABASE_URL, sslmode='require')
         cur = conn.cursor()
-        # Borramos la tabla para actualizar el cambio de Filo a Ejecutor y los rangos
         cur.execute("DROP TABLE IF EXISTS usuarios;")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS usuarios (
@@ -42,6 +42,15 @@ def init_db():
     except Exception as e:
         print(f"❌ ERROR DE BD: {e}")
 
+# --- FUNCIÓN PARA BORRAR MENSAJES ---
+async def borrar_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE, clave):
+    msg_id = context.user_data.get(clave)
+    if msg_id:
+        try:
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_id)
+        except:
+            pass
+
 # --- COMANDO /start ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -51,14 +60,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         pass 
 
-    maestro_id = None
-    if context.args:
-        try:
-            maestro_id = int(context.args[0])
-            if maestro_id == user_id:
-                maestro_id = None 
-        except ValueError:
-            pass
+    # Borrar mensaje de bienvenida anterior si existe
+    await borrar_mensaje(update, context, 'msg_bienvenida')
 
     conn = psycopg2.connect(DATABASE_URL, sslmode='require')
     cur = conn.cursor()
@@ -68,36 +71,46 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if resultado and resultado[0] is not None:
         cur.close()
         conn.close()
-        await update.message.reply_text(
-            "🌑 *Regreso detectado.*\n\nEl Sistema ya tiene tu registro. Pronto podrás pelear.",
+        msg = await update.message.reply_text(
+            "🌑 *Regreso detectado.*\n\nEl Sistema ya tiene tu registro. Usa /perfil para ver tu ficha.",
             parse_mode="Markdown"
         )
+        context.user_data['msg_bienvenida'] = msg.message_id
         return
 
-    context.user_data['maestro_id'] = maestro_id
+    context.user_data['maestro_id'] = None
+    if context.args:
+        try:
+            context.user_data['maestro_id'] = int(context.args[0])
+        except ValueError:
+            pass
+
     context.user_data['estado'] = 'esperando_nombre'
 
-    await update.message.reply_text(
+    msg = await update.message.reply_text(
         "🌑 *El Sistema te ha detectado.*\n\n"
         "Antes de cruzar el primer portal, necesito tu designación.\n"
         "**¿Cuál es tu nombre, Sujeto?**",
         parse_mode="Markdown"
     )
+    context.user_data['msg_bienvenida'] = msg.message_id
     cur.close()
     conn.close()
 
-# --- MANEJADOR DE MENSAJES (Acepta todo pero filtra) ---
+# --- MANEJADOR DE MENSAJES (Limpieza estricta) ---
 async def manejar_mensajes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     estado = context.user_data.get('estado')
 
     if estado == 'esperando_nombre':
-        # Si el mensaje no es texto, lo borramos y avisamos
         if not update.message.text:
             try:
                 await update.message.delete() 
             except:
                 pass
-            await update.message.reply_text("⚠️ El Sistema no procesa imágenes ni audios. **Escribe tu nombre con letras.**", parse_mode="Markdown")
+            # Borrar el mensaje de error anterior si existe
+            await borrar_mensaje(update, context, 'msg_error')
+            msg = await update.message.reply_text("⚠️ El Sistema no procesa imágenes ni audios. **Escribe tu nombre con letras.**", parse_mode="Markdown")
+            context.user_data['msg_error'] = msg.message_id
             return
             
         nombre_elegido = update.message.text
@@ -106,6 +119,10 @@ async def manejar_mensajes(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.delete()
         except:
             pass
+        
+        # Borrar mensajes de error y bienvenida para limpiar el chat
+        await borrar_mensaje(update, context, 'msg_error')
+        await borrar_mensaje(update, context, 'msg_bienvenida')
 
         context.user_data['nombre_temp'] = nombre_elegido
         context.user_data['estado'] = 'esperando_sexo'
@@ -116,16 +133,16 @@ async def manejar_mensajes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await update.message.reply_text(
+        msg = await update.message.reply_text(
             f"Registro aceptado, **{nombre_elegido}**.\n\n"
             "El Sistema necesita conocer tu estructura biológica.\n"
             "**Selecciona tu sexo:**",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
+        context.user_data['msg_pregunta_sexo'] = msg.message_id
         return
 
-    # Si está esperando un botón y envía texto/foto, lo borramos en silencio
     if estado in ['esperando_sexo', 'esperando_clase']:
         try:
             await update.message.delete()
@@ -162,7 +179,7 @@ async def boton_sexo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-# --- RECIBIR LA CLASE ---
+# --- RECIBIR LA CLASE (Y GENERAR FOTO) ---
 async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer() 
@@ -176,7 +193,6 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sexo_elegido = context.user_data.get('sexo_temp', 'M')
     maestro_id = context.user_data.get('maestro_id', None)
     
-    # Cambiado oficialmente a EJECUTOR
     nombres_clases = {
         'ejecutor': {'M': 'Ejecutor', 'F': 'Ejecutora'},
         'mago': {'M': 'Mago', 'F': 'Maga'},
@@ -185,7 +201,6 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'arquero': {'M': 'Arquero', 'F': 'Arquera'},
         'clerigo': {'M': 'Clérigo', 'F': 'Clériga'}
     }
-    
     clase_final = nombres_clases.get(clase_base, nombres_clases['ejecutor'])[sexo_elegido]
     
     stats = {
@@ -196,17 +211,24 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'arquero':  {'vida': 100, 'atq': 15, 'mov': 20, 'intel': 10, 'res': 10, 'tac': 20},
         'clerigo':  {'vida': 110, 'atq': 10, 'mov': 10, 'intel': 20, 'res': 15, 'tac': 20}
     }
-    
     s = stats.get(clase_base, stats['ejecutor'])
     
+    # --- GENERAR FOTO CON POLLINATIONS ---
+    prompt = f"A {sexo_elegido} {clase_final} in a dark futuristic RPG, glowing neon portal, epic fantasy style, portrait"
+    prompt_url = urllib.parse.quote(prompt)
+    foto_url = f"https://image.pollinations.ai/prompt/{prompt_url}?width=512&height=512&nologo=true"
+    
+    # --- HISTORIA SIMULADA (Luego la haremos con Groq) ---
+    historia = f"El día que el cielo se tiñó de violeta, {nombre_elegido} despertó con el poder de un {clase_final}. Ahora, el Sistema te observa."
+
     conn = psycopg2.connect(DATABASE_URL, sslmode='require')
     cur = conn.cursor()
     cur.execute("""
-        INSERT INTO usuarios (id_telegram, nombre, clase, sexo, rango, maestro_id, vida, atq, mov, intel, res, tac)
-        VALUES (%s, %s, %s, %s, 'E', %s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO usuarios (id_telegram, nombre, clase, sexo, rango, maestro_id, historia, foto_url, vida, atq, mov, intel, res, tac)
+        VALUES (%s, %s, %s, %s, 'E', %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (id_telegram) DO UPDATE SET
-        nombre = EXCLUDED.nombre, clase = EXCLUDED.clase, sexo = EXCLUDED.sexo, rango = 'E', maestro_id = EXCLUDED.maestro_id, vida = EXCLUDED.vida, atq = EXCLUDED.atq, mov = EXCLUDED.mov, intel = EXCLUDED.intel, res = EXCLUDED.res, tac = EXCLUDED.tac
-    """, (user_id, nombre_elegido, clase_final, sexo_elegido, maestro_id, s['vida'], s['atq'], s['mov'], s['intel'], s['res'], s['tac']))
+        nombre = EXCLUDED.nombre, clase = EXCLUDED.clase, sexo = EXCLUDED.sexo, rango = 'E', maestro_id = EXCLUDED.maestro_id, historia = EXCLUDED.historia, foto_url = EXCLUDED.foto_url, vida = EXCLUDED.vida, atq = EXCLUDED.atq, mov = EXCLUDED.mov, intel = EXCLUDED.intel, res = EXCLUDED.res, tac = EXCLUDED.tac
+    """, (user_id, nombre_elegido, clase_final, sexo_elegido, maestro_id, historia, foto_url, s['vida'], s['atq'], s['mov'], s['intel'], s['res'], s['tac']))
     conn.commit()
     cur.close()
     conn.close()
@@ -218,14 +240,10 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"👤 Sujeto: **{nombre_elegido}**\n"
         f"⚔️ Clase: **{clase_final}**\n"
         f"{icono_sexo} Sexo: **{'Masculino' if sexo_elegido == 'M' else 'Femenino'}**\n"
-        f"🏅 Rango: **E**\n"
-        f"📊 Nivel: **1**\n\n"
-        f"❤️ Vida: {s['vida']}\n"
-        f"⚔️ Ataque: {s['atq']}\n"
-        f"💨 Movilidad: {s['mov']}\n"
-        f"🧠 Inteligencia: {s['intel']}\n"
-        f"🛡️ Resistencia: {s['res']}\n"
-        f"🎯 Táctica: {s['tac']}\n\n"
+        f"🏅 Rango: **E** | 📊 Nivel: **1**\n\n"
+        f"📖 *Historia:* {historia}\n\n"
+        f"❤️ Vida: {s['vida']} | ⚔️ ATQ: {s['atq']} | 💨 MOV: {s['mov']}\n"
+        f"🧠 INT: {s['intel']} | 🛡️ RES: {s['res']} | 🎯 TAC: {s['tac']}\n\n"
     )
     
     if maestro_id:
@@ -233,9 +251,63 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     texto_final += "*El Sistema te observa. Prepárate para el primer portal.*"
     
-    context.user_data['estado'] = 'en_menu'
+    # Borramos el mensaje de los botones (que ya no sirve)
+    try:
+        await query.message.delete()
+    except:
+        pass
+
+    # Enviamos la foto con el texto
+    await context.bot.send_photo(
+        chat_id=update.effective_chat.id, 
+        photo=foto_url, 
+        caption=texto_final, 
+        parse_mode="Markdown"
+    )
     
-    await query.edit_message_text(text=texto_final, parse_mode="Markdown")
+    context.user_data['estado'] = 'en_menu'
+
+# --- COMANDO /perfil ---
+async def perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    # Borrar el comando /perfil del chat
+    try:
+        await update.message.delete()
+    except:
+        pass
+
+    conn = psycopg2.connect(DATABASE_URL, sslmode='require')
+    cur = conn.cursor()
+    cur.execute("SELECT nombre, clase, sexo, rango, nivel, vida, atq, mov, intel, res, tac, historia, foto_url FROM usuarios WHERE id_telegram = %s", (user_id,))
+    user = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    if user:
+        nombre, clase, sexo, rango, nivel, vida, atq, mov, intel, res, tac, historia, foto_url = user
+        icono_sexo = "♂️" if sexo == 'M' else "♀️"
+        
+        texto = (
+            f"🌑 *FICHA DEL SISTEMA*\n\n"
+            f"👤 Sujeto: **{nombre}**\n"
+            f"⚔️ Clase: **{clase}**\n"
+            f"{icono_sexo} Sexo: **{'Masculino' if sexo == 'M' else 'Femenino'}**\n"
+            f"🏅 Rango: **{rango}** | 📊 Nivel: **{nivel}**\n\n"
+            f"📖 *Historia:* {historia}\n\n"
+            f"❤️ Vida: {vida} | ⚔️ ATQ: {atq} | 💨 MOV: {mov}\n"
+            f"🧠 INT: {intel} | 🛡️ RES: {res} | 🎯 TAC: {tac}\n"
+        )
+        
+        await context.bot.send_photo(
+            chat_id=update.effective_chat.id, 
+            photo=foto_url, 
+            caption=texto, 
+            parse_mode="Markdown"
+        )
+    else:
+        msg = await update.message.reply_text("⚠️ El Sistema no te reconoce. Escribe /start primero.")
+        # Se podría programar un auto-borrado para este mensaje luego
 
 # --- SERVIDOR WEB FALSO ---
 class WebServer(BaseHTTPRequestHandler):
@@ -253,8 +325,8 @@ def main():
     app = Application.builder().token(TOKEN).build()
     
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("perfil", perfil)) # NUEVO COMANDO
     
-    # Atrapamos TODO tipo de mensaje que no sea un comando
     app.add_handler(MessageHandler(~filters.COMMAND, manejar_mensajes))
     
     app.add_handler(CallbackQueryHandler(boton_sexo, pattern='^sexo_'))
