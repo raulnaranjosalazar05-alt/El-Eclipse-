@@ -7,16 +7,14 @@ import asyncio
 import datetime
 import aiohttp
 import io
-import base64
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
-from together import Together
 
 TOKEN = os.environ.get("TOKEN")
 DATABASE_URL = os.environ.get("DATABASE_URL")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY") 
-TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY") # <-- NUEVA VARIABLE
+POLLINATIONS_API_KEY = os.environ.get("POLLINATIONS_API_KEY") # <-- NUEVA CLAVE
 PORT = int(os.environ.get("PORT", 8080))
 ID_CREADOR = 6985217869
 
@@ -271,30 +269,16 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         detalle = detalles_clase.get(clase_base, "wearing dark fantasy armor, holding a weapon")
         prompt = f"Epic dark fantasy portrait of a {genero_ingles} {clase_final}, {detalle}, standing in front of a glowing purple portal, cinematic lighting, highly detailed, 4k, masterpiece, dark atmosphere, neon purple glow"
 
+        # URL CON LA API KEY DE POLLINATIONS
+        foto_url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(prompt)}?width=512&height=512&nologo=true&model=flux&seed={random.randint(1, 9999)}&token={POLLINATIONS_API_KEY}"
+
         # Guardamos primero en BD para que el personaje exista
         cur.execute("""
             INSERT INTO usuarios (id_telegram, nombre, clase, sexo, rango, historia, foto_url, vida, vida_max, mana, mana_max, atq, mov, intel, res, tac, estrellas)
             VALUES (%s, %s, %s, %s, 'E', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0)
             ON CONFLICT (id_telegram) DO NOTHING
-        """, (user_id, nombre_elegido, clase_final, sexo_elegido, historia_defecto, "together_ai", s['vida'], s['vida'], s['mana'], s['mana'], s['atq'], s['mov'], s['intel'], s['res'], s['tac']))
+        """, (user_id, nombre_elegido, clase_final, sexo_elegido, historia_defecto, foto_url, s['vida'], s['vida'], s['mana'], s['mana'], s['atq'], s['mov'], s['intel'], s['res'], s['tac']))
         conn.commit(); cur.close(); conn.close()
-
-        # Llamada a Together.ai para la foto
-        image_data = None
-        try:
-            client = Together(api_key=TOGETHER_API_KEY)
-            response = client.images.generate(
-                model="black-forest-labs/FLUX.1-schnell-Free",
-                prompt=prompt,
-                width=512,
-                height=512,
-                steps=4,
-                n=1,
-                response_format="b64"
-            )
-            image_data = base64.b64decode(response.data[0].b64_json)
-        except Exception as e:
-            print(f"Error con Together.ai: {e}")
 
         # Pedir historia a Groq
         prompt_historia = f"Eres 'El Sistema'. Escribe una historia de origen épica y oscura (máximo 3 líneas) para un personaje llamado {nombre_elegido}, que es un {clase_final} en un mundo post-apocalíptico llamado 'El Eclipse'."
@@ -315,14 +299,11 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"💡 *Sugerencia:* Guarda esta imagen y úsala en tu perfil de Telegram."
         )
         
-        if image_data:
-            try:
-                await context.bot.send_photo(chat_id=update.effective_chat.id, photo=io.BytesIO(image_data), caption=texto_foto, parse_mode="Markdown")
-            except Exception as e:
-                print(f"Error enviando foto: {e}")
-                await context.bot.send_message(chat_id=update.effective_chat.id, text=f"⚠️ Fallo al enviar imagen, pero aquí está tu historia:\n\n{historia_final}")
-        else:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"⚠️ El Sistema no pudo generar tu imagen visual, pero tu personaje está listo.\n\n📖 *Historia:* {historia_final}", parse_mode="Markdown")
+        try:
+            await context.bot.send_photo(chat_id=update.effective_chat.id, photo=foto_url, caption=texto_foto, parse_mode="Markdown")
+        except Exception as e:
+            print(f"Error enviando foto: {e}")
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"⚠️ Fallo al enviar imagen, pero aquí está tu historia:\n\n{historia_final}")
 
     asyncio.create_task(guardar_y_generar())
 
@@ -343,9 +324,12 @@ async def perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🗡️ Arma: **{arma_equipada}**\n❤️ Vida: {vida}/{vida_max} | 🔮 Maná: {mana}/{mana_max}\n"
             f"⚔️ ATQ: {atq} | 💨 MOV: {mov} | 🧠 INT: {intel}\n🛡️ RES: {res} | 🎯 TAC: {tac}\n\n⚡ *Energía:* {energia}/5 | ⭐ *Estrellas:* {estrellas}"
         )
-        # Intentamos mandar la foto si la tenemos guardada (por ahora texto)
-        msg = await update.message.reply_text(texto, parse_mode="Markdown")
-        context.user_data['msg_perfil'] = msg.message_id
+        try:
+            msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=foto_url, caption=texto, parse_mode="Markdown")
+            context.user_data['msg_perfil'] = msg.message_id
+        except:
+            msg = await update.message.reply_text(texto, parse_mode="Markdown")
+            context.user_data['msg_perfil'] = msg.message_id
 
 # --- PORTAL ---
 async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -386,7 +370,7 @@ async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     
     prompt_m = urllib.parse.quote(f"epic dark fantasy monster {monstruo['nombre']}, purple neon portal background")
-    foto_url_m = f"https://image.pollinations.ai/prompt/{prompt_m}?width=512&height=512&nologo=true&model=flux&seed={monstruo['seed']}.jpg"
+    foto_url_m = f"https://image.pollinations.ai/prompt/{prompt_m}?width=512&height=512&nologo=true&model=flux&seed={monstruo['seed']}&token={POLLINATIONS_API_KEY}"
     
     texto = f"🩸 *PORTAL ABIERTO*\n\n**{monstruo['nombre']}** ha aparecido.\n❤️ Vida: {monstruo['hp']}\n\n*¿Qué harás?*"
     
