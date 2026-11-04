@@ -12,7 +12,6 @@ from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandl
 
 TOKEN = os.environ.get("TOKEN")
 DATABASE_URL = os.environ.get("DATABASE_URL")
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY") 
 POLLINATIONS_API_KEY = os.environ.get("POLLINATIONS_API_KEY")
 PORT = int(os.environ.get("PORT", 8080))
 ID_CREADOR = 6985217869
@@ -81,26 +80,55 @@ def init_db():
     except Exception as e:
         print(f"❌ ERROR DE BD: {e}")
 
-# --- FUNCIÓN NARRADORA CON GROQ ---
+# --- FUNCIÓN NARRADORA CON POLLINATIONS (TEXTO) ---
 async def narrar_con_ia(prompt_sistema, contexto):
-    if not GROQ_API_KEY: 
-        print("❌ GROQ_API_KEY no configurada.")
+    if not POLLINATIONS_API_KEY:
+        print("❌ POLLINATIONS_API_KEY no configurada.")
         return None 
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-    payload = {"model": "llama-3.1-8b-instant", "messages": [{"role": "system", "content": prompt_sistema}, {"role": "user", "content": contexto}], "max_tokens": 100, "temperature": 0.8}
+    
+    url = "https://gen.pollinations.ai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {POLLINATIONS_API_KEY}", "Content-Type": "application/json"}
+    payload = {
+        "model": "openai", 
+        "messages": [{"role": "system", "content": prompt_sistema}, {"role": "user", "content": contexto}],
+        "max_tokens": 120, "temperature": 0.8
+    }
+    
     try:
-        timeout = aiohttp.ClientTimeout(total=10)
+        timeout = aiohttp.ClientTimeout(total=15)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(url, headers=headers, json=payload) as response:
                 if response.status == 200:
                     data = await response.json()
-                    return data['choices'][0]['message']['content'].strip().replace('*', '').replace('_', '')
+                    texto = data['choices'][0]['message']['content'].strip()
+                    return texto.replace('*', '').replace('_', '')
                 else:
-                    print(f"❌ Error Groq API: {response.status}")
+                    print(f"❌ Error Pollinations Texto: {response.status} - {await response.text()}")
                     return None
     except Exception as e: 
-        print(f"❌ Error Groq Excepcion: {e}")
+        print(f"❌ Error Pollinations Excepcion: {e}")
+        return None
+
+# --- FUNCIÓN PARA GENERAR FOTO CON POLLINATIONS (SIN MARCA) ---
+async def generar_foto_pollinations(prompt, seed):
+    if not POLLINATIONS_API_KEY:
+        print("❌ POLLINATIONS_API_KEY no configurada.")
+        return None
+    
+    url = f"https://gen.pollinations.ai/image/{urllib.parse.quote(prompt)}?width=512&height=512&nologo=true&model=flux&seed={seed}"
+    headers = {"Authorization": f"Bearer {POLLINATIONS_API_KEY}"}
+    
+    try:
+        timeout = aiohttp.ClientTimeout(total=25)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url, headers=headers) as response:
+                if response.status == 200:
+                    return await response.read() # Devolvemos los bytes
+                else:
+                    print(f"❌ Error Pollinations Foto: {response.status}")
+                    return None
+    except Exception as e:
+        print(f"❌ Error Pollinations Foto Excepcion: {e}")
         return None
 
 # --- LIMPIAR CHAT ---
@@ -249,21 +277,23 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         detalle = detalles_clase.get(clase_base, "wearing dark fantasy armor, holding a weapon")
         prompt = f"Epic dark fantasy portrait of a {genero_ingles} {clase_final}, {detalle}, standing in front of a glowing purple portal, cinematic lighting, highly detailed, 4k, masterpiece, dark atmosphere, neon purple glow"
-        foto_url = f"https://gen.pollinations.ai/image/{urllib.parse.quote(prompt)}?width=512&height=512&nologo=true&model=flux&seed={random.randint(1, 9999)}&key={POLLINATIONS_API_KEY}"
+        
+        # Generar Foto
+        image_bytes = await generar_foto_pollinations(prompt, random.randint(1, 9999))
 
         cur.execute("""
             INSERT INTO usuarios (id_telegram, nombre, clase, sexo, rango, historia, foto_url, vida, vida_max, mana, mana_max, atq, mov, intel, res, tac, estrellas)
             VALUES (%s, %s, %s, %s, 'E', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0)
             ON CONFLICT (id_telegram) DO NOTHING
-        """, (user_id, nombre_elegido, clase_final, sexo_elegido, historia_final, foto_url, s['vida'], s['vida'], s['mana'], s['mana'], s['atq'], s['mov'], s['intel'], s['res'], s['tac']))
+        """, (user_id, nombre_elegido, clase_final, sexo_elegido, historia_final, "url_placeholder", s['vida'], s['vida'], s['mana'], s['mana'], s['atq'], s['mov'], s['intel'], s['res'], s['tac']))
         conn.commit(); cur.close(); conn.close()
 
         texto_foto = f"🌑 *REGISTRO VISUAL*\n\n👤 Sujeto: **{nombre_elegido}**\n\n📖 *Historia:*\n{historia_final}\n\n💡 *Sugerencia:* Guarda esta imagen y úsala en tu perfil de Telegram."
-        try: 
-            await context.bot.send_photo(chat_id=update.effective_chat.id, photo=foto_url, caption=texto_foto, parse_mode="Markdown")
-        except Exception as e: 
-            print(f"Error foto: {e}")
-            # Si falla la foto, avisamos en el chat
+        
+        if image_bytes:
+            try: await context.bot.send_photo(chat_id=update.effective_chat.id, photo=image_bytes, caption=texto_foto, parse_mode="Markdown")
+            except Exception as e: print(f"Error enviando foto: {e}")
+        else:
             await context.bot.send_message(chat_id=update.effective_chat.id, text="⚠️ El Sistema no pudo generar tu imagen visual, pero tu historia ha sido guardada.")
 
     asyncio.create_task(guardar_y_generar())
@@ -273,11 +303,11 @@ async def perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await limpiar_chat(update, context) 
     conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
-    cur.execute("SELECT nombre, clase, sexo, rango, nivel, exp, vida, vida_max, mana, mana_max, atq, mov, intel, res, tac, historia, foto_url, energia, estrellas, arma_equipada FROM usuarios WHERE id_telegram = %s", (user_id,))
+    cur.execute("SELECT nombre, clase, sexo, rango, nivel, exp, vida, vida_max, mana, mana_max, atq, mov, intel, res, tac, historia, energia, estrellas, arma_equipada FROM usuarios WHERE id_telegram = %s", (user_id,))
     user = cur.fetchone(); cur.close(); conn.close()
 
     if user:
-        (nombre, clase, sexo, rango, nivel, exp, vida, vida_max, mana, mana_max, atq, mov, intel, res, tac, historia, foto_url, energia, estrellas, arma_equipada) = user
+        (nombre, clase, sexo, rango, nivel, exp, vida, vida_max, mana, mana_max, atq, mov, intel, res, tac, historia, energia, estrellas, arma_equipada) = user
         icono_sexo = "♂️" if sexo == 'M' else "♀️"
         texto = (
             f"🌑 *FICHA DEL SISTEMA*\n\n👤 Sujeto: **{nombre}**\n⚔️ Clase: **{clase}**\n{icono_sexo} Sexo: **{'Masculino' if sexo == 'M' else 'Femenino'}**\n"
@@ -285,14 +315,10 @@ async def perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🗡️ Arma: **{arma_equipada}**\n❤️ Vida: {vida}/{vida_max} | 🔮 Maná: {mana}/{mana_max}\n"
             f"⚔️ ATQ: {atq} | 💨 MOV: {mov} | 🧠 INT: {intel}\n🛡️ RES: {res} | 🎯 TAC: {tac}\n\n⚡ *Energía:* {energia}/5 | ⭐ *Estrellas:* {estrellas}"
         )
-        try:
-            msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=foto_url, caption=texto, parse_mode="Markdown")
-            context.user_data['msg_perfil'] = msg.message_id
-        except:
-            msg = await update.message.reply_text(texto, parse_mode="Markdown")
-            context.user_data['msg_perfil'] = msg.message_id
+        msg = await update.message.reply_text(texto, parse_mode="Markdown")
+        context.user_data['msg_perfil'] = msg.message_id
 
-# --- PORTAL (CON SELECCIÓN ALEATORIA Y EVITANDO REPETIDOS) ---
+# --- PORTAL ---
 async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await limpiar_chat(update, context)
@@ -338,19 +364,24 @@ async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔮 Habilidad", callback_data='combate_habilidad'), InlineKeyboardButton("🏃 Huir", callback_data='combate_huir')]
     ]
     
-    prompt_m = urllib.parse.quote(f"epic dark fantasy monster {monstruo['nombre']}, purple neon portal background, cinematic, highly detailed")
-    foto_url_m = f"https://gen.pollinations.ai/image/{prompt_m}?width=512&height=512&nologo=true&model=flux&seed={monstruo['seed']}&key={POLLINATIONS_API_KEY}"
+    prompt_m = f"epic dark fantasy monster {monstruo['nombre']}, purple neon portal background, cinematic, highly detailed"
+    
+    # Generar Foto del Monstruo
+    image_bytes = await generar_foto_pollinations(prompt_m, monstruo['seed'])
     
     texto = f"🩸 *PORTAL ABIERTO*\n\n**{monstruo['nombre']}** ha aparecido.\n❤️ Vida: {monstruo['hp']}\n\n*¿Qué harás?*"
     
-    try:
-        msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=foto_url_m, caption=texto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-        context.user_data['msg_combate'] = msg.message_id
-    except:
-        msg = await update.message.reply_text(texto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-        context.user_data['msg_combate'] = msg.message_id
+    if image_bytes:
+        try:
+            msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=image_bytes, caption=texto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            context.user_data['msg_combate'] = msg.message_id
+            return
+        except: pass
+        
+    msg = await update.message.reply_text(texto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    context.user_data['msg_combate'] = msg.message_id
 
-# --- LÓGICA DE COMBATE (CON DEBILIDADES Y EXP ESCALABLE) ---
+# --- LÓGICA DE COMBATE ---
 async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
     if context.user_data.get('estado') != 'en_combate': return
@@ -361,8 +392,11 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     monstruo = context.user_data.get('monstruo', {"nombre": "Karu", "hp": 100, "exp": 100, "atk": 10, "debilidad": "Mago", "resistencia": "Ejecutor"})
     context.user_data['frase_epica'] = ''
 
+    # Arreglo de edición de mensaje
     try: await query.edit_message_caption(caption="⏳ *Calculando destino...*", parse_mode="Markdown")
-    except: pass
+    except: 
+        try: await query.edit_message_text("⏳ *Calculando destino...*", parse_mode="Markdown")
+        except: pass
     
     conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
     cur.execute("SELECT nombre, clase, vida, vida_max, mana, atq, mov, intel, exp, nivel, rango, monstruo_hp FROM usuarios WHERE id_telegram = %s", (user_id,))
@@ -379,7 +413,8 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             conn.commit(); cur.close(); conn.close()
             narr = await narrar_con_ia("Eres 'El Sistema'. Narra la huida de un jugador. Sé breve.", f"El jugador {nombre} huyó.")
             if not narr: narr = "El Sistema registra tu retirada."
-            await query.edit_message_caption(caption=f"{narr}\n\n🌑 *Has vuelto al Refugio.*", parse_mode="Markdown")
+            try: await query.edit_message_caption(caption=f"{narr}\n\n🌑 *Has vuelto al Refugio.*", parse_mode="Markdown")
+            except: await query.edit_message_text(f"{narr}\n\n🌑 *Has vuelto al Refugio.*", parse_mode="Markdown")
             context.user_data['estado'] = 'en_menu'
             await context.bot.send_message(chat_id=update.effective_chat.id, text="Usa los botones de abajo.", reply_markup=obtener_menu_fijo())
             return
@@ -462,7 +497,8 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     (vida, vida_max, mana, atq, mov, intel, exp, nivel, nuevo_rango, user_id))
         conn.commit(); cur.close(); conn.close()
         
-        await query.edit_message_caption(caption=f"{narracion_epica}\n\n🌑 *El Sistema te devuelve al Refugio.*", parse_mode="Markdown")
+        try: await query.edit_message_caption(caption=f"{narracion_epica}\n\n🌑 *El Sistema te devuelve al Refugio.*", parse_mode="Markdown")
+        except: await query.edit_message_text(f"{narracion_epica}\n\n🌑 *El Sistema te devuelve al Refugio.*", parse_mode="Markdown")
         context.user_data['estado'] = 'en_menu'
         await context.bot.send_message(chat_id=update.effective_chat.id, text="Menú activado.", reply_markup=obtener_menu_fijo())
         return
@@ -472,7 +508,8 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bloqueo = datetime.datetime.now() + datetime.timedelta(hours=1)
         cur.execute("UPDATE usuarios SET vida = 0, en_combate = FALSE, bloqueo_hasta = %s WHERE id_telegram = %s", (bloqueo, user_id))
         conn.commit(); cur.close(); conn.close()
-        await query.edit_message_caption(caption=f"{narracion_epica}\n\n🌑 *El Sistema te castiga.*", parse_mode="Markdown")
+        try: await query.edit_message_caption(caption=f"{narracion_epica}\n\n🌑 *El Sistema te castiga.*", parse_mode="Markdown")
+        except: await query.edit_message_text(f"{narracion_epica}\n\n🌑 *El Sistema te castiga.*", parse_mode="Markdown")
         context.user_data['estado'] = 'en_menu'
         await context.bot.send_message(chat_id=update.effective_chat.id, text="Menú activado.", reply_markup=obtener_menu_fijo())
         return
@@ -481,7 +518,8 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.commit(); cur.close(); conn.close()
 
     keyboard = [[InlineKeyboardButton("⚔️ Atacar", callback_data='combate_atacar'), InlineKeyboardButton("💨 Esquivar", callback_data='combate_esquivar')], [InlineKeyboardButton("🔮 Habilidad", callback_data='combate_habilidad'), InlineKeyboardButton("🏃 Huir", callback_data='combate_huir')]]
-    await query.edit_message_caption(caption=f"{narracion_epica}\n\n❤️ Vida: {vida}/{vida_max} | 🔮 Maná: {mana}\n🩸 {monstruo['nombre']}: {hp_monstruo}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    try: await query.edit_message_caption(caption=f"{narracion_epica}\n\n❤️ Vida: {vida}/{vida_max} | 🔮 Maná: {mana}\n🩸 {monstruo['nombre']}: {hp_monstruo}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    except: await query.edit_message_text(f"{narracion_epica}\n\n❤️ Vida: {vida}/{vida_max} | 🔮 Maná: {mana}\n🩸 {monstruo['nombre']}: {hp_monstruo}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 # --- TIENDA, INVENTARIO Y CREADOR ---
 async def tienda(update: Update, context: ContextTypes.DEFAULT_TYPE):
