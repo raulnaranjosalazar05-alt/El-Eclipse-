@@ -185,11 +185,6 @@ async def manejar_mensajes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def boton_sexo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
     if context.user_data.get('estado') != 'esperando_sexo': return
-    
-    msg_viejo = context.user_data.get('msg_pregunta_sexo')
-    if msg_viejo:
-        try: await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_viejo)
-        except: pass
 
     context.user_data['sexo_temp'] = "M" if query.data == 'sexo_m' else "F"
     context.user_data['estado'] = 'esperando_clase'
@@ -201,8 +196,10 @@ async def boton_sexo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🏹 Arquero/a", callback_data='clase_arquero')],
         [InlineKeyboardButton("✨ Clérigo/a", callback_data='clase_clerigo')]
     ]
-    msg = await query.edit_message_text("Sexo registrado.\n\n**Elige tu clase:**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-    context.user_data['msg_pregunta_clase'] = msg.message_id
+    try:
+        await query.edit_message_text("Sexo registrado.\n\n**Elige tu clase:**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    except:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Sexo registrado.\n\n**Elige tu clase:**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
