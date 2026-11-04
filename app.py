@@ -62,7 +62,7 @@ def init_db():
     except Exception as e:
         print(f"❌ ERROR DE BD: {e}")
 
-# --- FUNCIÓN NARRADORA CON GROQ ---
+# --- FUNCIÓN NARRADORA CON GROQ (CON TIMEOUT PARA NO CONGELAR) ---
 async def narrar_con_ia(prompt_sistema, contexto):
     if not GROQ_API_KEY:
         return "El Sistema calcula el daño en silencio (API de IA no configurada)."
@@ -73,7 +73,7 @@ async def narrar_con_ia(prompt_sistema, contexto):
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "llama-3.1-8b-instant", # MODELO ACTUALIZADO
+        "model": "llama-3.1-8b-instant",
         "messages": [
             {"role": "system", "content": prompt_sistema},
             {"role": "user", "content": contexto}
@@ -83,7 +83,9 @@ async def narrar_con_ia(prompt_sistema, contexto):
     }
     
     try:
-        async with aiohttp.ClientSession() as session:
+        # Timeout de 15 segundos para que no se congele el bot
+        timeout = aiohttp.ClientTimeout(total=15)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(url, headers=headers, json=payload) as response:
                 if response.status == 200:
                     data = await response.json()
@@ -97,7 +99,7 @@ async def narrar_con_ia(prompt_sistema, contexto):
 
 # --- LIMPIAR CHAT ---
 async def limpiar_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    for clave in ['msg_bienvenida', 'msg_error', 'msg_perfil', 'msg_combate', 'msg_tienda', 'msg_creador', 'msg_pregunta_sexo']:
+    for clave in ['msg_bienvenida', 'msg_error', 'msg_perfil', 'msg_combate', 'msg_tienda', 'msg_creador', 'msg_pregunta_sexo', 'msg_pregunta_clase']:
         msg_id = context.user_data.get(clave)
         if msg_id:
             try: await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_id)
@@ -137,6 +139,7 @@ async def manejar_mensajes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto = update.message.text
     estado = context.user_data.get('estado')
 
+    # Atajos del menú
     if texto == "👤 Perfil": await perfil(update, context); return
     elif texto == "🩸 Portal": await portal(update, context); return
     elif texto == "🛒 Tienda": await tienda(update, context); return
@@ -144,11 +147,14 @@ async def manejar_mensajes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if estado == 'esperando_nombre':
         if not texto:
+            # Si mandó foto, video, sticker, etc.
             try: await update.message.delete() 
             except: pass
-            msg = await update.message.reply_text("⚠️ El Sistema no procesa imágenes. **Escribe tu nombre.**", parse_mode="Markdown")
+            msg = await update.message.reply_text("⚠️ El Sistema no procesa imágenes ni audios aquí. **Escribe tu nombre con letras.**", parse_mode="Markdown")
             context.user_data['msg_error'] = msg.message_id
             return
+        
+        # Si es texto correcto
         try: await update.message.delete()
         except: pass
         await limpiar_chat(update, context)
@@ -184,7 +190,7 @@ async def boton_sexo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
     if context.user_data.get('estado') != 'esperando_sexo': return
     
-    # PARCHE: Borrar el mensaje de "Registro aceptado"
+    # Borrar mensaje de "Registro aceptado"
     msg_viejo = context.user_data.get('msg_pregunta_sexo')
     if msg_viejo:
         try: await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_viejo)
@@ -228,15 +234,15 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     s = stats.get(clase_base, stats['ejecutor'])
     
-    # PARCHE: IA GENERA LA HISTORIA
     await query.edit_message_text("⏳ *El Sistema está escribiendo tu historia...*", parse_mode="Markdown")
+    
     prompt_historia = f"Eres 'El Sistema'. Escribe una historia de origen épica y oscura (máximo 3 líneas) para un personaje llamado {nombre_elegido}, que es un {clase_final} en un mundo post-apocalíptico llamado 'El Eclipse'."
     historia = await narrar_con_ia(prompt_historia, f"Genera la historia para {nombre_elegido}.")
     
-    # PARCHE: FOTO SIN MARCA DE AGUA
     genero_ingles = "man" if sexo_elegido == 'M' else "woman"
     prompt = urllib.parse.quote(f"portrait of a {genero_ingles} {clase_final}, dark fantasy RPG, neon purple glow")
-    foto_url = f"https://pollinations.ai/p/{prompt}?width=512&height=512&nologo=true&model=flux&seed={random.randint(1, 9999)}"
+    # Usamos el endpoint con .jpg y nologo
+    foto_url = f"https://image.pollinations.ai/prompt/{prompt}?width=512&height=512&nologo=true&model=flux&seed={random.randint(1, 9999)}.jpg"
 
     conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
     cur.execute("""
@@ -245,7 +251,7 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """, (user_id, nombre_elegido, clase_final, sexo_elegido, historia, foto_url, s['vida'], s['vida'], s['mana'], s['mana'], s['atq'], s['mov'], s['intel'], s['res'], s['tac']))
     conn.commit(); cur.close(); conn.close()
     
-    # Borramos el mensaje de elegir clase
+    # Borramos el mensaje de "Elige tu clase"
     msg_viejo = context.user_data.get('msg_pregunta_clase')
     if msg_viejo:
         try: await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_viejo)
@@ -322,8 +328,7 @@ async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     
     prompt_m = urllib.parse.quote(f"epic dark fantasy monster {monstruo['nombre']}, purple neon portal background")
-    # PARCHE: FOTO MONSTRUO SIN MARCA
-    foto_url_m = f"https://pollinations.ai/p/{prompt_m}?width=512&height=512&nologo=true&model=flux&seed={monstruo['seed']}"
+    foto_url_m = f"https://image.pollinations.ai/prompt/{prompt_m}?width=512&height=512&nologo=true&model=flux&seed={monstruo['seed']}.jpg"
     
     texto = f"🩸 *PORTAL ABIERTO*\n\n**{monstruo['nombre']}** ha aparecido.\n❤️ Vida: {monstruo['hp']}\n\n*¿Qué harás?*"
     
@@ -469,7 +474,7 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
     )
 
-# --- TIENDA, INVENTARIO Y CREADOR (Igual que antes) ---
+# --- TIENDA, INVENTARIO Y CREADOR ---
 async def tienda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await limpiar_chat(update, context)
@@ -642,7 +647,8 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("creador", creador))
     
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, manejar_mensajes))
+    # ATRAPA TEXTOS, FOTOS, STICKERS Y AUDIOS PARA AVISAR
+    app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.Sticker.ALL | filters.AUDIO) & ~filters.COMMAND, manejar_mensajes))
     
     app.add_handler(CallbackQueryHandler(boton_sexo, pattern='^sexo_'))
     app.add_handler(CallbackQueryHandler(boton_clase, pattern='^clase_'))
