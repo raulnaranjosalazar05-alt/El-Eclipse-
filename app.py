@@ -224,7 +224,7 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = urllib.parse.quote(f"portrait of a {genero_ingles} {clase_final}, dark fantasy RPG, neon purple glow")
     
     # NUEVA URL DE POLLINATIONS PARA QUITAR LA MARCA (Usando el endpoint de generación rápida)
-    foto_url = f"https://pollinations.ai/p/{prompt}?width=512&height=512&model=flux&nologo=true&seed={random.randint(1, 9999)}"
+    foto_url = f"https://image.pollinations.ai/prompt/{prompt}?width=512&height=512&nologo=true&model=flux&enhance=false&seed={random.randint(1, 9999)}.jpg"
     
     historia = f"El día que el cielo se tiñó de violeta, {nombre_elegido} despertó con el poder de un {clase_final}."
 
