@@ -7,7 +7,7 @@ import asyncio
 import datetime
 import aiohttp
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 
 TOKEN = os.environ.get("TOKEN")
@@ -50,7 +50,6 @@ def init_db():
         print("✅ Base de datos lista.")
     except Exception as e: print(f"❌ ERROR BD: {e}")
 
-# --- NARRADOR (POLLINATIONS TEXTO) ---
 async def narrar_con_ia(prompt_sistema, contexto):
     url = "https://text.pollinations.ai/openai"
     payload = {"model": "openai", "messages": [{"role": "system", "content": prompt_sistema}, {"role": "user", "content": contexto}], "max_tokens": 100}
@@ -64,24 +63,22 @@ async def narrar_con_ia(prompt_sistema, contexto):
                 return None
     except: return None
 
-# --- GENERADOR DE IMAGEN (CON SELLO DE POLLINATIONS) ---
 async def generar_imagen_sistema(prompt):
-    # URL pública (sale con la marca del Consejo)
-    url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(prompt)}?width=512&height=512&nologo=false&model=flux"
+    # Mejoramos el prompt para que las imágenes sean más oscuras y detalladas
+    prompt_mejorado = f"highly detailed dark fantasy concept art, {prompt}, ominous atmosphere, dramatic lighting, 8k resolution"
+    url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(prompt_mejorado)}?width=512&height=512&nologo=false&model=flux"
     try:
         timeout = aiohttp.ClientTimeout(total=40)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(url) as response:
-                if response.status == 200:
-                    return await response.read()
+                if response.status == 200: return await response.read()
                 return None
     except Exception as e: 
         print(f"❌ Error Imagen: {e}")
         return None
 
-# --- LIMPIAR CHAT ---
 async def limpiar_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    for clave in ['msg_bienvenida', 'msg_error', 'msg_perfil', 'msg_combate', 'msg_tienda', 'msg_creador', 'msg_pregunta_sexo', 'msg_pregunta_clase']:
+    for clave in ['msg_bienvenida', 'msg_error', 'msg_perfil', 'msg_combate', 'msg_tienda', 'msg_creador', 'msg_pregunta_sexo', 'msg_pregunta_clase', 'msg_transicion']:
         msg_id = context.user_data.get(clave)
         if msg_id:
             try: await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_id)
@@ -93,7 +90,6 @@ async def limpiar_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def obtener_menu_fijo():
     return ReplyKeyboardMarkup([[KeyboardButton("👤 Perfil"), KeyboardButton("🩸 Portal")], [KeyboardButton("🛒 Tienda"), KeyboardButton("🎒 Inventario")]], resize_keyboard=True)
 
-# --- /start ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await limpiar_chat(update, context)
@@ -106,11 +102,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['msg_bienvenida'] = msg.message_id
         return
     context.user_data['estado'] = 'esperando_nombre'
-    msg = await update.message.reply_text("🌑 *El Sistema te ha detectado.*\n\n**¿Cuál es tu nombre, Sujeto?**", parse_mode="Markdown")
+    msg = await update.message.reply_text("🌑 *El Sistema te ha detectado.*\n\n**¿Cuál es tu nombre, Sujeto?**", reply_markup=ReplyKeyboardRemove(), parse_mode="Markdown")
     context.user_data['msg_bienvenida'] = msg.message_id
     cur.close(); conn.close()
 
-# --- MANEJADOR DE MENSAJES ---
 async def manejar_mensajes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto = update.message.text
     estado = context.user_data.get('estado')
@@ -154,7 +149,6 @@ async def manejar_mensajes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except: pass
         return
 
-# --- BOTONES DE SEXO Y CLASE ---
 async def boton_sexo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
     if context.user_data.get('estado') != 'esperando_sexo': return
@@ -190,6 +184,10 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     async def guardar_y_generar():
         conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
+        
+        # Transición de texto
+        msg_trans = await context.bot.send_message(chat_id=update.effective_chat.id, text="🔮 *El Oráculo de Pollinations te está escaneando...*\n\n_El Consejo de Naciones requiere unos segundos para procesar tu forma física._", parse_mode="Markdown")
+        
         prompt_historia = f"Eres 'El Sistema'. Escribe una historia de origen épica y oscura (máximo 3 líneas) para un personaje llamado {nombre_elegido}, que es un {clase_final} en un mundo post-apocalíptico llamado 'El Eclipse'."
         historia_ia = await narrar_con_ia(prompt_historia, f"Genera la historia para {nombre_elegido}.")
         historia_final = historia_ia if historia_ia else f"El día que el cielo se tiñó de violeta, {nombre_elegido} despertó con el poder de un {clase_final}."
@@ -201,11 +199,10 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         genero_ingles = "man" if sexo_elegido == 'M' else "woman"
         detalles_clase = {'ejecutor': "massive greatsword, dark heavy armor, neon purple accents", 'mago': "floating crystal staff, dark robes, glowing runes", 'guardian': "massive spiked armor, giant shield", 'asesino': "dark hooded cloak, dual daggers", 'arquero': "glowing energy bow, light leather armor", 'clerigo': "ornate dark robes, glowing holy symbol"}
         detalle = detalles_clase.get(clase_base, "dark fantasy armor")
-        prompt = f"Epic dark fantasy portrait of a {genero_ingles} {clase_final}, {detalle}, dark atmosphere, neon purple glow"
+        prompt = f"portrait of a {genero_ingles} {clase_final}, {detalle}, dark atmosphere, neon purple glow"
         
         image_bytes = await generar_imagen_sistema(prompt)
         
-        # --- LORE POLLINATIONS ---
         texto_foto = (
             f"🌑 *REGISTRO VISUAL - FACCIÓN POLLINATIONS*\n\n"
             f"👤 Sujeto: **{nombre_elegido}**\n\n"
@@ -216,10 +213,12 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if image_bytes:
             try: await context.bot.send_photo(chat_id=update.effective_chat.id, photo=image_bytes, caption=texto_foto, parse_mode="Markdown")
             except: pass
+        
+        try: await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_trans.message_id)
+        except: pass
 
     asyncio.create_task(guardar_y_generar())
 
-# --- PERFIL ---
 async def perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await limpiar_chat(update, context) 
@@ -236,7 +235,6 @@ async def perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = await update.message.reply_text(texto, parse_mode="Markdown")
         context.user_data['msg_perfil'] = msg.message_id
 
-# --- PORTAL ---
 async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await limpiar_chat(update, context)
@@ -259,21 +257,34 @@ async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     monstruo = random.choice(disponibles)
     cur.execute("UPDATE usuarios SET en_combate = TRUE, monstruo_hp = %s, monstruo_nombre = %s, energia = energia - 1 WHERE id_telegram = %s", (monstruo['hp'], monstruo['nombre'], user_id))
     conn.commit(); cur.close(); conn.close()
-    context.user_data['estado'] = 'en_combate'; context.user_data['monstruo'] = monstruo
     
-    keyboard = [[InlineKeyboardButton("⚔️ Atacar", callback_data='combate_atacar'), InlineKeyboardButton("💨 Esquivar", callback_data='combate_esquivar')], [InlineKeyboardButton("🔮 Habilidad", callback_data='combate_habilidad'), InlineKeyboardButton("🏃 Huir", callback_data='combate_huir')]]
+    # Ocultamos el menú y mostramos transición
+    msg_trans = await update.message.reply_text("🌀 *Abriendo portal...* El Sistema está escaneando la amenaza.", reply_markup=ReplyKeyboardRemove(), parse_mode="Markdown")
     
-    msg = await update.message.reply_text(f"🩸 *PORTAL ABIERTO*\n\n**{monstruo['nombre']}** ha aparecido.\n❤️ Vida: {monstruo['hp']}\n\n*¿Qué harás?*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-    context.user_data['msg_combate'] = msg.message_id
-    
-    async def enviar_foto_monstruo():
-        prompt_m = f"epic dark fantasy monster {monstruo['nombre']}, purple neon portal background, cinematic"
+    async def transicion_y_combate():
+        prompt_m = f"monster {monstruo['nombre']}, dark fantasy concept art"
         image_bytes = await generar_imagen_sistema(prompt_m)
+        
+        # Borramos el mensaje de "Abriendo portal"
+        try: await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_trans.message_id)
+        except: pass
+        
+        keyboard = [[InlineKeyboardButton("⚔️ Atacar", callback_data='combate_atacar'), InlineKeyboardButton("💨 Esquivar", callback_data='combate_esquivar')], [InlineKeyboardButton("🔮 Habilidad", callback_data='combate_habilidad'), InlineKeyboardButton("🏃 Huir", callback_data='combate_huir')]]
+        texto = f"🩸 *PORTAL ABIERTO*\n\n**{monstruo['nombre']}** ha aparecido.\n❤️ Vida: {monstruo['hp']}\n\n*¿Qué harás?*"
+        
         if image_bytes:
-            texto_foto = f"🩸 *ENTIDAD DETECTADA POR POLLINATIONS*\n\n*El Consejo de Naciones ha escaneado a esta criatura. La marca en la imagen es el código de barras de su existencia.*"
-            try: await context.bot.send_photo(chat_id=update.effective_chat.id, photo=image_bytes, caption=texto_foto, parse_mode="Markdown")
+            texto_foto = f"🩸 *ENTIDAD DETECTADA POR POLLINATIONS*\n\n*El Consejo ha escaneado a esta criatura. La marca es el código de barras de su existencia.*\n\n{texto}"
+            try: 
+                msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=image_bytes, caption=texto_foto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+                context.user_data['msg_combate'] = msg.message_id
+                context.user_data['estado'] = 'en_combate'; context.user_data['monstruo'] = monstruo
             except: pass
-    asyncio.create_task(enviar_foto_monstruo())
+        else:
+            msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=texto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            context.user_data['msg_combate'] = msg.message_id
+            context.user_data['estado'] = 'en_combate'; context.user_data['monstruo'] = monstruo
+            
+    asyncio.create_task(transicion_y_combate())
 
 async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
@@ -282,18 +293,25 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     frase = context.user_data.get('frase_epica', ''); context.user_data['frase_epica'] = ''
     monstruo = context.user_data.get('monstruo', {"nombre": "Karu", "hp": 100, "exp": 100, "atk": 10, "debilidad": "Mago", "resistencia": "Ejecutor"})
-    try: await query.edit_message_text("⏳ *Calculando destino...*", parse_mode="Markdown")
-    except: pass
+    
+    # Editamos el mensaje de la foto (caption)
+    try: await query.edit_message_caption(caption="⏳ *Calculando destino...*", parse_mode="Markdown")
+    except: 
+        try: await query.edit_message_text("⏳ *Calculando destino...*", parse_mode="Markdown")
+        except: pass
+        
     conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
     cur.execute("SELECT nombre, clase, vida, vida_max, mana, atq, mov, intel, exp, nivel, rango, monstruo_hp FROM usuarios WHERE id_telegram = %s", (user_id,))
     user = cur.fetchone()
     nombre, clase, vida, vida_max, mana, atq, mov, intel, exp, nivel, rango, hp_monstruo = user
     dano = 0; dano_recibido = 0; accion_texto = ""; result_texto = ""
+    
     if accion == 'huir':
         if random.randint(1, 100) <= (mov * 2):
             accion_texto = f"{nombre} intenta huir."; result_texto = "Escapa."
             cur.execute("UPDATE usuarios SET en_combate = FALSE WHERE id_telegram = %s", (user_id,)); conn.commit(); cur.close(); conn.close()
-            await query.edit_message_text("🌑 *Has vuelto al Refugio.*", parse_mode="Markdown")
+            try: await query.edit_message_caption(caption="🌑 *Has vuelto al Refugio.*", parse_mode="Markdown")
+            except: await query.edit_message_text("🌑 *Has vuelto al Refugio.*", parse_mode="Markdown")
             context.user_data['estado'] = 'en_menu'; await context.bot.send_message(chat_id=update.effective_chat.id, text="Usa los botones de abajo.", reply_markup=obtener_menu_fijo()); return
         else:
             dano_recibido = monstruo['atk'] + random.randint(1, 5); vida -= dano_recibido
@@ -330,6 +348,9 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     contexto_ia = f"Acción: {accion_texto}. Resultado: {result_texto}." + (f" Gritó: '{frase}'." if frase else "")
     narracion_epica = await narrar_con_ia("Eres 'El Sistema', frío y brutal. Narra la acción en 3 líneas.", contexto_ia)
     if not narracion_epica: narracion_epica = "El Sistema registra el impacto en silencio."
+    
+    keyboard = [[InlineKeyboardButton("⚔️ Atacar", callback_data='combate_atacar'), InlineKeyboardButton("💨 Esquivar", callback_data='combate_esquivar')], [InlineKeyboardButton("🔮 Habilidad", callback_data='combate_habilidad'), InlineKeyboardButton("🏃 Huir", callback_data='combate_huir')]]
+    
     if hp_monstruo <= 0:
         exp_ganada = int(monstruo['exp'] * (1 / nivel)) if nivel > 1 else monstruo['exp']
         narracion_epica += f"\n\n💀 **{monstruo['nombre']} ha muerto.**\n🌟 *+{exp_ganada} EXP.*"
@@ -341,21 +362,26 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cur.execute("INSERT INTO derrotados (id_telegram, nombre) VALUES (%s, %s) ON CONFLICT DO NOTHING", (user_id, monstruo['nombre']))
         cur.execute("UPDATE usuarios SET vida = %s, vida_max = %s, mana = %s, atq = %s, mov = %s, intel = %s, exp = %s, nivel = %s, rango = %s, en_combate = FALSE, energia = 5 WHERE id_telegram = %s", (vida, vida_max, mana, atq, mov, intel, exp, nivel, nuevo_rango, user_id))
         conn.commit(); cur.close(); conn.close()
-        await query.edit_message_text(f"{narracion_epica}\n\n🌑 *Refugio.*", parse_mode="Markdown")
+        
+        try: await query.edit_message_caption(caption=f"{narracion_epica}\n\n🌑 *Refugio.*", parse_mode="Markdown")
+        except: await query.edit_message_text(f"{narracion_epica}\n\n🌑 *Refugio.*", parse_mode="Markdown")
         context.user_data['estado'] = 'en_menu'; await context.bot.send_message(chat_id=update.effective_chat.id, text="Menú activado.", reply_markup=obtener_menu_fijo()); return
+        
     if vida <= 0:
         narracion_epica += f"\n\n☠️ **Has muerto.** Bloqueado 1 hora."
         bloqueo = datetime.datetime.now() + datetime.timedelta(hours=1)
         cur.execute("UPDATE usuarios SET vida = 0, en_combate = FALSE, bloqueo_hasta = %s WHERE id_telegram = %s", (bloqueo, user_id))
         conn.commit(); cur.close(); conn.close()
-        await query.edit_message_text(f"{narracion_epica}\n\n🌑 *Castigo.*", parse_mode="Markdown")
+        try: await query.edit_message_caption(caption=f"{narracion_epica}\n\n🌑 *Castigo.*", parse_mode="Markdown")
+        except: await query.edit_message_text(f"{narracion_epica}\n\n🌑 *Castigo.*", parse_mode="Markdown")
         context.user_data['estado'] = 'en_menu'; await context.bot.send_message(chat_id=update.effective_chat.id, text="Menú activado.", reply_markup=obtener_menu_fijo()); return
+        
     cur.execute("UPDATE usuarios SET vida = %s, mana = %s, monstruo_hp = %s WHERE id_telegram = %s", (vida, mana, hp_monstruo, user_id))
     conn.commit(); cur.close(); conn.close()
-    keyboard = [[InlineKeyboardButton("⚔️ Atacar", callback_data='combate_atacar'), InlineKeyboardButton("💨 Esquivar", callback_data='combate_esquivar')], [InlineKeyboardButton("🔮 Habilidad", callback_data='combate_habilidad'), InlineKeyboardButton("🏃 Huir", callback_data='combate_huir')]]
-    await query.edit_message_text(f"{narracion_epica}\n\n❤️ Vida: {vida}/{vida_max} | 🔮 Maná: {mana}\n🩸 {monstruo['nombre']}: {hp_monstruo}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    
+    try: await query.edit_message_caption(caption=f"{narracion_epica}\n\n❤️ Vida: {vida}/{vida_max} | 🔮 Maná: {mana}\n🩸 {monstruo['nombre']}: {hp_monstruo}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    except: await query.edit_message_text(f"{narracion_epica}\n\n❤️ Vida: {vida}/{vida_max} | 🔮 Maná: {mana}\n🩸 {monstruo['nombre']}: {hp_monstruo}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
-# --- TIENDA, INVENTARIO Y CREADOR (Iguales, sin cambios) ---
 async def tienda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id; await limpiar_chat(update, context)
     conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
@@ -374,6 +400,15 @@ async def tienda_cajas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
     keyboard = [[InlineKeyboardButton("📦 Caja Común - 10⭐", callback_data='comprar_caja_comun')], [InlineKeyboardButton("🎁 Cofre Épico - 30⭐", callback_data='comprar_cofre_epico')], [InlineKeyboardButton("🔙 Volver", callback_data='menu_tienda')]]
     await query.edit_message_text("🎁 *CAJAS*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+# --- BOTONES QUE FALTABAN (PACTOS Y BENDICIONES) ---
+async def tienda_pactos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query; await query.answer()
+    await query.answer("💍 El Sistema aún no permite pactos de sangre. Pronto se habilitará.", show_alert=True)
+
+async def tienda_bendiciones(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query; await query.answer()
+    await query.answer("👑 Las Bendiciones del Creador aún están bloqueadas. Espera la próxima actualización.", show_alert=True)
 
 async def comprar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer(); user_id = update.effective_user.id
@@ -466,6 +501,8 @@ def main():
     app.add_handler(CallbackQueryHandler(boton_creador, pattern='^admin_'))
     app.add_handler(CallbackQueryHandler(tienda_pociones, pattern='^tienda_pociones$'))
     app.add_handler(CallbackQueryHandler(tienda_cajas, pattern='^tienda_cajas$'))
+    app.add_handler(CallbackQueryHandler(tienda_pactos, pattern='^tienda_pactos$')) # Añadido
+    app.add_handler(CallbackQueryHandler(tienda_bendiciones, pattern='^tienda_bendiciones$')) # Añadido
     app.add_handler(CallbackQueryHandler(comprar, pattern='^comprar_'))
     app.add_handler(CallbackQueryHandler(equipar_arma, pattern='^equipar_'))
     app.add_handler(CallbackQueryHandler(volver_menu, pattern='^volver_menu$'))
