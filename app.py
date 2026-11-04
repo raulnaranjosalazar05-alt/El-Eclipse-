@@ -18,38 +18,13 @@ ID_CREADOR = 6985217869
 GRUPO_A = ["Ejecutor", "Asesino", "Arquero"]
 GRUPO_B = ["Mago", "Guardián", "Clérigo"]
 
-# --- CATÁLOGO DE ARMAS (Tiers: 5, 10, 15) ---
 ARMAS = {
-    "ejecutor": [
-        {"nombre": "Espada Corta", "tier": 1, "stat": 5, "precio": 15},
-        {"nombre": "Filo del Eclipse", "tier": 2, "stat": 10, "precio": 40},
-        {"nombre": "Mandoble del Vacío", "tier": 3, "stat": 15, "precio": 100}
-    ],
-    "mago": [
-        {"nombre": "Bastón Astillado", "tier": 1, "stat": 5, "precio": 15},
-        {"nombre": "Cetro del Registro", "tier": 2, "stat": 10, "precio": 40},
-        {"nombre": "Vara de la Creación", "tier": 3, "stat": 15, "precio": 100}
-    ],
-    "guardian": [
-        {"nombre": "Escudo de Madera", "tier": 1, "stat": 5, "precio": 15},
-        {"nombre": "Muro de Obsidiana", "tier": 2, "stat": 10, "precio": 40},
-        {"nombre": "Baluarte del Sistema", "tier": 3, "stat": 15, "precio": 100}
-    ],
-    "asesino": [
-        {"nombre": "Daga de Óxido", "tier": 1, "stat": 5, "precio": 15},
-        {"nombre": "Colmillos Gemelos", "tier": 2, "stat": 10, "precio": 40},
-        {"nombre": "Filos del Silencio", "tier": 3, "stat": 15, "precio": 100}
-    ],
-    "arquero": [
-        {"nombre": "Arco Corto", "tier": 1, "stat": 5, "precio": 15},
-        {"nombre": "Arco de Energía", "tier": 2, "stat": 10, "precio": 40},
-        {"nombre": "Ballesta del Eclipse", "tier": 3, "stat": 15, "precio": 100}
-    ],
-    "clerigo": [
-        {"nombre": "Símbolo Menor", "tier": 1, "stat": 5, "precio": 15},
-        {"nombre": "Reliquia del Alba", "tier": 2, "stat": 10, "precio": 40},
-        {"nombre": "Cetro de Fe", "tier": 3, "stat": 15, "precio": 100}
-    ]
+    "ejecutor": [{"nombre": "Espada Corta", "tier": 1, "stat": 5, "precio": 15}, {"nombre": "Filo del Eclipse", "tier": 2, "stat": 10, "precio": 40}, {"nombre": "Mandoble del Vacío", "tier": 3, "stat": 15, "precio": 100}],
+    "mago": [{"nombre": "Bastón Astillado", "tier": 1, "stat": 5, "precio": 15}, {"nombre": "Cetro del Registro", "tier": 2, "stat": 10, "precio": 40}, {"nombre": "Vara de la Creación", "tier": 3, "stat": 15, "precio": 100}],
+    "guardian": [{"nombre": "Escudo de Madera", "tier": 1, "stat": 5, "precio": 15}, {"nombre": "Muro de Obsidiana", "tier": 2, "stat": 10, "precio": 40}, {"nombre": "Baluarte del Sistema", "tier": 3, "stat": 15, "precio": 100}],
+    "asesino": [{"nombre": "Daga de Óxido", "tier": 1, "stat": 5, "precio": 15}, {"nombre": "Colmillos Gemelos", "tier": 2, "stat": 10, "precio": 40}, {"nombre": "Filos del Silencio", "tier": 3, "stat": 15, "precio": 100}],
+    "arquero": [{"nombre": "Arco Corto", "tier": 1, "stat": 5, "precio": 15}, {"nombre": "Arco de Energía", "tier": 2, "stat": 10, "precio": 40}, {"nombre": "Ballesta del Eclipse", "tier": 3, "stat": 15, "precio": 100}],
+    "clerigo": [{"nombre": "Símbolo Menor", "tier": 1, "stat": 5, "precio": 15}, {"nombre": "Reliquia del Alba", "tier": 2, "stat": 10, "precio": 40}, {"nombre": "Cetro de Fe", "tier": 3, "stat": 15, "precio": 100}]
 }
 
 MONSTRUOS = {
@@ -106,11 +81,7 @@ def texto_respaldo(tipo, nombre, monstruo=""):
     if tipo == "historia":
         return f"El día que el cielo se tiñó de violeta, {nombre} despertó con un poder prohibido. El Sistema lo ha registrado. Ahora debe sobrevivir."
     elif tipo == "combate":
-        opciones = [
-            f"El Sujeto {nombre} ataca con fiereza. El monstruo {monstruo} responde con un zarpazo que hace sangrar el aire.",
-            f"El acero choca contra la piel de {monstruo}. {nombre} siente el dolor, pero no se detiene.",
-            f"Un golpe brutal. {monstruo} ruge y {nombre} retrocede. El Sistema observa en silencio."
-        ]
+        opciones = [f"El Sujeto {nombre} ataca con fiereza. El monstruo {monstruo} responde con un zarpazo que hace sangrar el aire.", f"El acero choca contra la piel de {monstruo}. {nombre} siente el dolor, pero no se detiene.", f"Un golpe brutal. {monstruo} ruge y {nombre} retrocede. El Sistema observa en silencio."]
         return random.choice(opciones)
     return ""
 
@@ -173,10 +144,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def manejar_mensajes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto = update.message.text
     estado = context.user_data.get('estado')
+
+    # --- DETECCIÓN DE TECLADOS DE ABAJO ---
     if texto == "👤 Perfil": await perfil(update, context); return
     elif texto == "🩸 Portal": await portal(update, context); return
     elif texto == "🛒 Tienda": await tienda(update, context); return
     elif texto == "🎒 Inventario": await inventario(update, context); return
+
+    if texto in ["⚔️ Ejecutor", "🔮 Mago", "🛡️ Guardián", "🗡️ Asesino", "🏹 Arquero", "✨ Clérigo"]:
+        context.user_data['clase_temp'] = texto
+        await procesar_clase_final(update, context)
+        return
+
+    if texto in ["⚔️ ATACAR", "💨 ESQUIVAR", "🔮 HABILIDAD", "🏃 HUIR"]:
+        context.user_data['accion_temp'] = texto
+        await procesar_accion_combate(update, context)
+        return
 
     if estado == 'esperando_nombre':
         if not texto:
@@ -218,35 +201,42 @@ async def boton_sexo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('estado') != 'esperando_sexo': return
     context.user_data['sexo_temp'] = "M" if query.data == 'sexo_m' else "F"
     context.user_data['estado'] = 'esperando_clase'
+    
+    # --- CLASES 2x3 (TECLADO DE ABAJO) ---
     keyboard = [
-        [InlineKeyboardButton("⚔️ Ejecutor", callback_data='clase_ejecutor'), InlineKeyboardButton("🔮 Mago", callback_data='clase_mago'), InlineKeyboardButton("🛡️ Guardián", callback_data='clase_guardian')],
-        [InlineKeyboardButton("🗡️ Asesino", callback_data='clase_asesino'), InlineKeyboardButton("🏹 Arquero", callback_data='clase_arquero'), InlineKeyboardButton("✨ Clérigo", callback_data='clase_clerigo')]
+        [KeyboardButton("⚔️ Ejecutor"), KeyboardButton("🔮 Mago"), KeyboardButton("🛡️ Guardián")],
+        [KeyboardButton("🗡️ Asesino"), KeyboardButton("🏹 Arquero"), KeyboardButton("✨ Clérigo")]
     ]
-    try: await query.edit_message_text("Sexo registrado.\n\n**Elige tu clase:**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-    except: await context.bot.send_message(chat_id=update.effective_chat.id, text="Sexo registrado.\n\n**Elige tu clase:**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+    
+    try: await query.message.delete()
+    except: pass
+    
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="Sexo registrado.\n\n**Elige tu clase:**", reply_markup=reply_markup, parse_mode="Markdown")
 
-async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query; await query.answer()
-    if context.user_data.get('estado') != 'esperando_clase': return
+async def procesar_clase_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    clase_base = query.data.replace('clase_', '') 
+    clase_emoji = context.user_data.get('clase_temp', "⚔️ Ejecutor")
     nombre_elegido = context.user_data.get('nombre_temp', 'Desconocido')
     sexo_elegido = context.user_data.get('sexo_temp', 'M')
+    
+    mapa_clases = {"⚔️ Ejecutor": "ejecutor", "🔮 Mago": "mago", "🛡️ Guardián": "guardian", "🗡️ Asesino": "asesino", "🏹 Arquero": "arquero", "✨ Clérigo": "clerigo"}
+    clase_base = mapa_clases.get(clase_emoji, "ejecutor")
     
     nombres_clases = {'ejecutor': {'M': 'Ejecutor', 'F': 'Ejecutora'}, 'mago': {'M': 'Mago', 'F': 'Maga'}, 'guardian': {'M': 'Guardián', 'F': 'Guardiana'}, 'asesino': {'M': 'Asesino', 'F': 'Asesina'}, 'arquero': {'M': 'Arquero', 'F': 'Arquera'}, 'clerigo': {'M': 'Clérigo', 'F': 'Clériga'}}
     clase_final = nombres_clases.get(clase_base, nombres_clases['ejecutor'])[sexo_elegido]
     stats = {'ejecutor': {'vida': 120, 'mana': 30, 'atq': 25, 'mov': 15, 'intel': 5,  'res': 15, 'tac': 15}, 'mago': {'vida': 80,  'mana': 100,'atq': 5,  'mov': 10, 'intel': 25, 'res': 10, 'tac': 25}, 'guardian': {'vida': 180, 'mana': 40, 'atq': 10, 'mov': 5,  'intel': 10, 'res': 25, 'tac': 25}, 'asesino': {'vida': 90,  'mana': 50, 'atq': 20, 'mov': 25, 'intel': 5,  'res': 5,  'tac': 20}, 'arquero': {'vida': 100, 'mana': 60, 'atq': 15, 'mov': 20, 'intel': 10, 'res': 10, 'tac': 20}, 'clerigo': {'vida': 110, 'mana': 80, 'atq': 10, 'mov': 10, 'intel': 20, 'res': 15, 'tac': 20}}
     s = stats.get(clase_base, stats['ejecutor'])
     
-    try: await query.message.delete()
+    try: await update.message.delete()
     except: pass
 
     icono_sexo = "♂️" if sexo_elegido == 'M' else "♀️"
     texto_final = (f"✅ *REGISTRO COMPLETADO*\n\n👤 Sujeto: **{nombre_elegido}**\n⚔️ Clase: **{clase_final}**\n{icono_sexo} Sexo: **{'Masculino' if sexo_elegido == 'M' else 'Femenino'}**\n"
         f"🏅 Rango: **E** | 📊 Nivel: **1**\n\n❤️ Vida: {s['vida']} | 🔮 Maná: {s['mana']}\n⚔️ ATQ: {s['atq']} | 💨 MOV: {s['mov']}\n🧠 INT: {s['intel']} | 🛡️ RES: {s['res']} | 🎯 TAC: {s['tac']}\n\n🌑 *El Sistema te da la bienvenida.*")
-    msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=texto_final, parse_mode="Markdown")
-    context.user_data['msg_perfil'] = msg.message_id
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="​", reply_markup=obtener_menu_fijo())
+    
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=texto_final, parse_mode="Markdown")
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="🌑 *El Sistema está listo.*", reply_markup=obtener_menu_fijo(), parse_mode="Markdown")
     context.user_data['estado'] = 'en_menu'
 
     async def guardar_y_generar():
@@ -357,13 +347,14 @@ async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try: await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_trans.message_id)
         except: pass
         
-        # --- BOTONES DE COMBATE (ANCHO COMPLETO) ---
+        # --- TECLADO DE COMBATE (ABAJO, OCUPA TODO EL ANCHO) ---
         keyboard = [
-            [InlineKeyboardButton("⚔️ ATACAR", callback_data='combate_atacar')],
-            [InlineKeyboardButton("💨 ESQUIVAR", callback_data='combate_esquivar')],
-            [InlineKeyboardButton("🔮 HABILIDAD", callback_data='combate_habilidad')],
-            [InlineKeyboardButton("🏃 HUIR", callback_data='combate_huir')]
+            [KeyboardButton("⚔️ ATACAR")],
+            [KeyboardButton("💨 ESQUIVAR")],
+            [KeyboardButton("🔮 HABILIDAD")],
+            [KeyboardButton("🏃 HUIR")]
         ]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
         
         titulo = "👑 *JEFE FINAL*" if es_jefe else "🩸 *PORTAL ABIERTO*"
         texto = f"{titulo}\n\n**{monstruo['nombre']}** ha aparecido.\n❤️ Vida: {monstruo['hp']}\n\n*¿Qué harás?*"
@@ -371,29 +362,33 @@ async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if image_bytes:
             texto_foto = f"🩸 *ENTIDAD DETECTADA*\n\n{texto}"
             try: 
-                msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=image_bytes, caption=texto_foto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+                msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=image_bytes, caption=texto_foto, reply_markup=reply_markup, parse_mode="Markdown")
                 context.user_data['msg_combate'] = msg.message_id
                 context.user_data['estado'] = 'en_combate'
             except: pass
         else:
-            msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=texto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=texto, reply_markup=reply_markup, parse_mode="Markdown")
             context.user_data['msg_combate'] = msg.message_id
             context.user_data['estado'] = 'en_combate'
             
     asyncio.create_task(transicion_y_combate())
 
-async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query; await query.answer()
+async def procesar_accion_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('estado') != 'en_combate': return
-    accion = query.data.replace('combate_', '')
+    
+    accion_emoji = context.user_data.get('accion_temp', "⚔️ ATACAR")
+    mapa_acciones = {"⚔️ ATACAR": "atacar", "💨 ESQUIVAR": "esquivar", "🔮 HABILIDAD": "habilidad", "🏃 HUIR": "huir"}
+    accion = mapa_acciones.get(accion_emoji, "atacar")
+    
     user_id = update.effective_user.id
     frase = context.user_data.get('frase_epica', ''); context.user_data['frase_epica'] = ''
     monstruo = context.user_data.get('monstruo', {"nombre": "Karu", "hp": 100, "exp": 100, "atk": 10, "grupo": "A"})
     es_jefe = context.user_data.get('es_jefe', False)
     
-    try: await query.edit_message_caption(caption="⏳ *Calculando destino...*", parse_mode="Markdown")
+    msg_combate_id = context.user_data.get('msg_combate')
+    try: await context.bot.edit_message_caption(chat_id=update.effective_chat.id, message_id=msg_combate_id, caption="⏳ *Calculando destino...*", parse_mode="Markdown")
     except: 
-        try: await query.edit_message_text("⏳ *Calculando destino...*", parse_mode="Markdown")
+        try: await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=msg_combate_id, text="⏳ *Calculando destino...*", parse_mode="Markdown")
         except: pass
         
     conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
@@ -409,15 +404,14 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cur.execute("UPDATE usuarios SET en_combate = FALSE WHERE id_telegram = %s", (user_id,)); conn.commit(); cur.close(); conn.close()
             
             narr = "🌑 *Has escapado.* La oscuridad del portal se cierra tras de ti. No hay recompensa para los cobardes, pero vives para pelear otro día."
-            try: await query.edit_message_caption(caption=narr, parse_mode="Markdown")
-            except: await query.edit_message_text(narr, parse_mode="Markdown")
+            try: await context.bot.edit_message_caption(chat_id=update.effective_chat.id, message_id=msg_combate_id, caption=narr, parse_mode="Markdown")
+            except: await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=msg_combate_id, text=narr, parse_mode="Markdown")
             
-            msg_foto_id = context.user_data.get('msg_combate')
-            if msg_foto_id:
-                try: await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_foto_id)
+            if msg_combate_id:
+                try: await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_combate_id)
                 except: pass
                 
-            context.user_data['estado'] = 'en_menu'; await context.bot.send_message(chat_id=update.effective_chat.id, text="​", reply_markup=obtener_menu_fijo()); return
+            context.user_data['estado'] = 'en_menu'; await context.bot.send_message(chat_id=update.effective_chat.id, text="🌑 *Has vuelto al Refugio.*", reply_markup=obtener_menu_fijo()); return
         else:
             dano_recibido = monstruo['atk'] + random.randint(1, 5); vida -= dano_recibido
             accion_texto = f"{nombre} intenta huir."; result_texto = f"Falla. {dano_recibido} de daño."
@@ -482,15 +476,12 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         conn.commit(); cur.close(); conn.close()
         
-        try: await query.edit_message_caption(caption=f"{narracion_epica}", parse_mode="Markdown")
-        except: await query.edit_message_text(f"{narracion_epica}", parse_mode="Markdown")
-        
-        msg_foto_id = context.user_data.get('msg_combate')
-        if msg_foto_id:
-            try: await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_foto_id)
+        if msg_combate_id:
+            try: await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_combate_id)
             except: pass
-            
-        context.user_data['estado'] = 'en_menu'; await context.bot.send_message(chat_id=update.effective_chat.id, text="​", reply_markup=obtener_menu_fijo()); return
+        
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"{narracion_epica}\n\n🌑 *El Sistema te devuelve al Refugio.*", reply_markup=obtener_menu_fijo(), parse_mode="Markdown")
+        context.user_data['estado'] = 'en_menu'; return
         
     if vida <= 0:
         narracion_epica += f"\n\n☠️ **Has muerto.** El Sistema te castiga con 1 hora de bloqueo."
@@ -498,27 +489,29 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cur.execute("UPDATE usuarios SET vida = 0, en_combate = FALSE, bloqueo_hasta = %s WHERE id_telegram = %s", (bloqueo, user_id))
         conn.commit(); cur.close(); conn.close()
         
-        try: await query.edit_message_caption(caption=f"{narracion_epica}", parse_mode="Markdown")
-        except: await query.edit_message_text(f"{narracion_epica}", parse_mode="Markdown")
-        
-        msg_foto_id = context.user_data.get('msg_combate')
-        if msg_foto_id:
-            try: await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_foto_id)
+        if msg_combate_id:
+            try: await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_combate_id)
             except: pass
             
-        context.user_data['estado'] = 'en_menu'; await context.bot.send_message(chat_id=update.effective_chat.id, text="​", reply_markup=obtener_menu_fijo()); return
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"{narracion_epica}\n\n🌑 *Castigo del Sistema.*", reply_markup=obtener_menu_fijo(), parse_mode="Markdown")
+        context.user_data['estado'] = 'en_menu'; return
         
     cur.execute("UPDATE usuarios SET vida = %s, mana = %s, monstruo_hp = %s WHERE id_telegram = %s", (vida, mana, hp_monstruo, user_id))
     conn.commit(); cur.close(); conn.close()
     
-    keyboard = [
-        [InlineKeyboardButton("⚔️ ATACAR", callback_data='combate_atacar')],
-        [InlineKeyboardButton("💨 ESQUIVAR", callback_data='combate_esquivar')],
-        [InlineKeyboardButton("🔮 HABILIDAD", callback_data='combate_habilidad')],
-        [InlineKeyboardButton("🏃 HUIR", callback_data='combate_huir')]
-    ]
-    try: await query.edit_message_caption(caption=f"{narracion_epica}\n\n❤️ Vida: {vida}/{vida_max} | 🔮 Maná: {mana}\n🩸 {monstruo['nombre']}: {hp_monstruo}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-    except: await query.edit_message_text(f"{narracion_epica}\n\n❤️ Vida: {vida}/{vida_max} | 🔮 Maná: {mana}\n🩸 {monstruo['nombre']}: {hp_monstruo}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    # --- ACTUALIZAR EL MENSAJE CON EL TEXTO ---
+    texto_combate = f"{narracion_epica}\n\n❤️ Vida: {vida}/{vida_max} | 🔮 Maná: {mana}\n🩸 {monstruo['nombre']}: {hp_monstruo}"
+    
+    if msg_combate_id:
+        try: await context.bot.edit_message_caption(chat_id=update.effective_chat.id, message_id=msg_combate_id, caption=texto_combate, parse_mode="Markdown")
+        except: 
+            try: await context.bot.edit_message_text(chat_id=update.effective_chat.id, message_id=msg_combate_id, text=texto_combate, parse_mode="Markdown")
+            except: pass
+    
+    # Volvemos a mostrar el teclado de combate
+    keyboard = [[KeyboardButton("⚔️ ATACAR")], [KeyboardButton("💨 ESQUIVAR")], [KeyboardButton("🔮 HABILIDAD")], [KeyboardButton("🏃 HUIR")]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="​", reply_markup=reply_markup)
 
 async def tienda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id; await limpiar_chat(update, context)
@@ -665,7 +658,7 @@ async def equipar_arma(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def volver_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
     await query.edit_message_text("🌑 *Menú.*", parse_mode="Markdown")
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="​", reply_markup=obtener_menu_fijo())
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="🌑 *El Sistema está listo.*", reply_markup=obtener_menu_fijo())
 
 async def creador(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ID_CREADOR: return
@@ -697,8 +690,6 @@ def main():
     app.add_handler(CommandHandler("creador", creador))
     app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.Sticker.ALL | filters.AUDIO) & ~filters.COMMAND, manejar_mensajes))
     app.add_handler(CallbackQueryHandler(boton_sexo, pattern='^sexo_'))
-    app.add_handler(CallbackQueryHandler(boton_clase, pattern='^clase_'))
-    app.add_handler(CallbackQueryHandler(boton_combate, pattern='^combate_'))
     app.add_handler(CallbackQueryHandler(boton_creador, pattern='^admin_'))
     app.add_handler(CallbackQueryHandler(tienda_pociones, pattern='^tienda_pociones$'))
     app.add_handler(CallbackQueryHandler(tienda_armeria, pattern='^tienda_armeria$'))
