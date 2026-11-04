@@ -47,10 +47,11 @@ def init_db():
                 estrellas INT DEFAULT 0,
                 en_combate BOOLEAN DEFAULT FALSE,
                 monstruo_hp INT DEFAULT 0,
-                bloqueo_hasta TIMESTAMP
+                bloqueo_hasta TIMESTAMP,
+                arma_equipada VARCHAR(50) DEFAULT 'Ninguna'
             )
         """)
-        cur.execute("CREATE TABLE IF NOT EXISTS inventario (id_telegram BIGINT, item VARCHAR(50), cantidad INT DEFAULT 1, PRIMARY KEY (id_telegram, item));")
+        cur.execute("CREATE TABLE IF NOT EXISTS inventario (id_telegram BIGINT, item VARCHAR(50), tipo VARCHAR(20), stat_bonus INT, cantidad INT DEFAULT 1, PRIMARY KEY (id_telegram, item));")
         cur.execute("CREATE TABLE IF NOT EXISTS jefe_supremo (id INT PRIMARY KEY, nombre VARCHAR(50), vida INT, activo BOOLEAN);")
         conn.commit()
         cur.close()
@@ -70,7 +71,7 @@ async def limpiar_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try: await update.message.delete()
         except: pass
 
-# --- MENÚ FIJO DE ABAJO ---
+# --- MENÚ FIJO ---
 def obtener_menu_fijo():
     keyboard = [
         [KeyboardButton("👤 Perfil"), KeyboardButton("🩸 Portal")],
@@ -82,8 +83,7 @@ def obtener_menu_fijo():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await limpiar_chat(update, context)
-    conn = psycopg2.connect(DATABASE_URL, sslmode='require')
-    cur = conn.cursor()
+    conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
     cur.execute("SELECT clase FROM usuarios WHERE id_telegram = %s", (user_id,))
     resultado = cur.fetchone()
     
@@ -98,26 +98,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['msg_bienvenida'] = msg.message_id
     cur.close(); conn.close()
 
-# --- MANEJADOR DE MENSAJES (Texto y Botones Fijos) ---
+# --- MANEJADOR DE MENSAJES ---
 async def manejar_mensajes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto = update.message.text
     estado = context.user_data.get('estado')
 
-    # Si está en el menú y toca un botón fijo
-    if texto == "👤 Perfil":
-        await perfil(update, context)
-        return
-    elif texto == "🩸 Portal":
-        await portal(update, context)
-        return
-    elif texto == "🛒 Tienda":
-        await tienda(update, context)
-        return
-    elif texto == "🎒 Inventario":
-        await inventario(update, context)
-        return
+    if texto == "👤 Perfil": await perfil(update, context); return
+    elif texto == "🩸 Portal": await portal(update, context); return
+    elif texto == "🛒 Tienda": await tienda(update, context); return
+    elif texto == "🎒 Inventario": await inventario(update, context); return
 
-    # Flujo de creación de personaje
     if estado == 'esperando_nombre':
         if not texto:
             try: await update.message.delete() 
@@ -133,6 +123,20 @@ async def manejar_mensajes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[InlineKeyboardButton("♂️ Masculino", callback_data='sexo_m')], [InlineKeyboardButton("♀️ Femenino", callback_data='sexo_f')]]
         msg = await update.message.reply_text(f"Registro aceptado, **{texto}**.\n\nSelecciona tu sexo:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         context.user_data['msg_pregunta_sexo'] = msg.message_id
+        return
+
+    if estado == 'regalar_estrellas':
+        try:
+            partes = texto.split()
+            target_id = int(partes[0])
+            cantidad = int(partes[1])
+            conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
+            cur.execute("UPDATE usuarios SET estrellas = estrellas + %s WHERE id_telegram = %s", (cantidad, target_id))
+            conn.commit(); cur.close(); conn.close()
+            await update.message.reply_text(f"⭐ Has regalado {cantidad} Estrellas al ID {target_id}.")
+        except:
+            await update.message.reply_text("❌ Formato incorrecto. Usa: `ID CANTIDAD`", parse_mode="Markdown")
+        context.user_data['estado'] = 'en_menu'
         return
 
     if estado == 'en_combate' and texto:
@@ -195,19 +199,28 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """, (user_id, nombre_elegido, clase_final, sexo_elegido, historia, foto_url, s['vida'], s['vida'], s['mana'], s['mana'], s['atq'], s['mov'], s['intel'], s['res'], s['tac']))
     conn.commit(); cur.close(); conn.close()
     
-    icono_sexo = "♂️" if sexo_elegido == 'M' else "♀️"
-    texto_final = (
-        f"✅ *REGISTRO COMPLETADO*\n\n👤 Sujeto: **{nombre_elegido}**\n⚔️ Clase: **{clase_final}**\n{icono_sexo} Sexo: **{'Masculino' if sexo_elegido == 'M' else 'Femenino'}**\n"
-        f"🏅 Rango: **E** | 📊 Nivel: **1**\n\n📖 *Historia:* {historia}\n\n❤️ Vida: {s['vida']} | 🔮 Maná: {s['mana']}\n"
-        f"⭐ Estrellas: 0"
-    )
+    # Primero el texto para que el bot responda rápido
     try: await query.message.delete()
     except: pass
     
-    await context.bot.send_photo(chat_id=update.effective_chat.id, photo=foto_url, caption=texto_final, parse_mode="Markdown")
-    
-    msg = await update.message.reply_text("🌑 El Sistema ha registrado tu ficha. Usa los botones de abajo.", reply_markup=obtener_menu_fijo())
+    texto_final = (
+        f"✅ *REGISTRO COMPLETADO*\n\n👤 Sujeto: **{nombre_elegido}**\n⚔️ Clase: **{clase_final}**\n"
+        f"🏅 Rango: **E** | 📊 Nivel: **1**\n\n📖 *Historia:* {historia}\n\n*Generando registro visual...*"
+    )
+    msg = await update.message.reply_text(texto_final, parse_mode="Markdown")
     context.user_data['msg_perfil'] = msg.message_id
+
+    # Luego la foto (si falla, no rompe el bot)
+    try:
+        await context.bot.send_photo(
+            chat_id=update.effective_chat.id, photo=foto_url, 
+            caption=f"🌑 *Ficha del Sistema*\n❤️ Vida: {s['vida']} | 🔮 Maná: {s['mana']}\n⚔️ ATQ: {s['atq']} | 💨 MOV: {s['mov']}\n🧠 INT: {s['intel']} | 🛡️ RES: {s['res']} | 🎯 TAC: {s['tac']}", 
+            parse_mode="Markdown"
+        )
+    except:
+        pass
+
+    await update.message.reply_text("🌑 Usa los botones de abajo.", reply_markup=obtener_menu_fijo())
     context.user_data['estado'] = 'en_menu'
 
 # --- PERFIL ---
@@ -215,21 +228,23 @@ async def perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await limpiar_chat(update, context) 
     conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
-    cur.execute("SELECT nombre, clase, sexo, rango, nivel, exp, vida, vida_max, mana, mana_max, atq, mov, intel, res, tac, historia, foto_url, energia, estrellas FROM usuarios WHERE id_telegram = %s", (user_id,))
+    cur.execute("SELECT nombre, clase, sexo, rango, nivel, exp, vida, vida_max, mana, mana_max, atq, mov, intel, res, tac, historia, foto_url, energia, estrellas, arma_equipada FROM usuarios WHERE id_telegram = %s", (user_id,))
     user = cur.fetchone(); cur.close(); conn.close()
 
     if user:
-        nombre, clase, sexo, rango, nivel, exp, vida, vida_max, mana, mana_max, atq, mov, intel, res, tac, historia, foto_url, energia, estrellas = user
+        (nombre, clase, sexo, rango, nivel, exp, vida, vida_max, mana, mana_max, atq, mov, intel, res, tac, historia, foto_url, energia, estrellas, arma_equipada) = user
         icono_sexo = "♂️" if sexo == 'M' else "♀️"
         texto = (
             f"🌑 *FICHA DEL SISTEMA*\n\n👤 Sujeto: **{nombre}**\n⚔️ Clase: **{clase}**\n{icono_sexo} Sexo: **{'Masculino' if sexo == 'M' else 'Femenino'}**\n"
-            f"🏅 Rango: **{rango}** | 📊 Nivel: **{nivel}** (EXP: {exp}/{nivel*100})\n\n📖 *Historia:* {historia}\n\n❤️ Vida: {vida}/{vida_max} | 🔮 Maná: {mana}/{mana_max}\n"
+            f"🏅 Rango: **{rango}** | 📊 Nivel: **{nivel}** (EXP: {exp}/{nivel*100})\n\n📖 *Historia:* {historia}\n\n"
+            f"🗡️ Arma: **{arma_equipada}**\n"
+            f"❤️ Vida: {vida}/{vida_max} | 🔮 Maná: {mana}/{mana_max}\n"
             f"⚔️ ATQ: {atq} | 💨 MOV: {mov} | 🧠 INT: {intel}\n🛡️ RES: {res} | 🎯 TAC: {tac}\n\n⚡ *Energía:* {energia}/5 | ⭐ *Estrellas:* {estrellas}"
         )
         msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=foto_url, caption=texto, parse_mode="Markdown")
         context.user_data['msg_perfil'] = msg.message_id
 
-# --- PORTAL (COMBATE) ---
+# --- PORTAL (COMBATE CON MONSTRUOS ALEATORIOS) ---
 async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await limpiar_chat(update, context)
@@ -250,20 +265,31 @@ async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['msg_error'] = msg.message_id
         return
 
-    hp_monstruo = 100
-    cur.execute("UPDATE usuarios SET en_combate = TRUE, monstruo_hp = %s, energia = energia - 1 WHERE id_telegram = %s", (hp_monstruo, user_id))
+    # Elegir monstruo (Karu o Vex)
+    monstruos = [
+        {"nombre": "Karu, el Registrado", "hp": 100, "seed": 100},
+        {"nombre": "Vex, Sujeto 07", "hp": 120, "seed": 200}
+    ]
+    monstruo = random.choice(monstruos)
+    
+    cur.execute("UPDATE usuarios SET en_combate = TRUE, monstruo_hp = %s, energia = energia - 1 WHERE id_telegram = %s", (monstruo['hp'], user_id))
     conn.commit(); cur.close(); conn.close()
 
     context.user_data['estado'] = 'en_combate'
+    context.user_data['monstruo'] = monstruo
     
     keyboard = [
         [InlineKeyboardButton("⚔️ Atacar", callback_data='combate_atacar'), InlineKeyboardButton("💨 Esquivar", callback_data='combate_esquivar')],
         [InlineKeyboardButton("🔮 Habilidad", callback_data='combate_habilidad'), InlineKeyboardButton("🏃 Huir", callback_data='combate_huir')]
     ]
-    msg = await update.message.reply_text(
-        f"🩸 *PORTAL ABIERTO*\n\n**Karu, el Registrado** (Rango E).\n❤️ Vida: {hp_monstruo}/100\n\n*¿Qué harás?*", 
-        reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
-    )
+    
+    # Imagen fija del monstruo usando el seed
+    prompt_m = urllib.parse.quote(f"epic dark fantasy monster {monstruo['nombre']}, purple neon portal background")
+    foto_url_m = f"https://image.pollinations.ai/prompt/{prompt_m}?width=512&height=512&nologo=true&model=flux&seed={monstruo['seed']}"
+    
+    texto = f"🩸 *PORTAL ABIERTO*\n\n**{monstruo['nombre']}** ha aparecido.\n❤️ Vida: {monstruo['hp']}\n\n*¿Qué harás?*"
+    
+    msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=foto_url_m, caption=texto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     context.user_data['msg_combate'] = msg.message_id
 
 # --- LÓGICA DE COMBATE ---
@@ -274,9 +300,10 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     accion = query.data.replace('combate_', '')
     user_id = update.effective_user.id
     frase = context.user_data.get('frase_epica', '')
+    monstruo = context.user_data.get('monstruo', {"nombre": "Karu, el Registrado", "hp": 100})
     context.user_data['frase_epica'] = ''
 
-    await query.edit_message_text("⏳ *Calculando destino...*", parse_mode="Markdown")
+    await query.edit_message_caption(caption="⏳ *Calculando destino...*", parse_mode="Markdown")
     await asyncio.sleep(2) 
 
     conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
@@ -292,7 +319,7 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             narracion += "logra escapar. No hay recompensa."
             cur.execute("UPDATE usuarios SET en_combate = FALSE WHERE id_telegram = %s", (user_id,))
             conn.commit(); cur.close(); conn.close()
-            await query.edit_message_text(narracion + "\n\n🌑 *Has vuelto al Refugio.*", parse_mode="Markdown")
+            await query.edit_message_caption(caption=narracion + "\n\n🌑 *Has vuelto al Refugio.*", parse_mode="Markdown")
             context.user_data['estado'] = 'en_menu'
             await context.bot.send_message(chat_id=update.effective_chat.id, text="Menú activado.", reply_markup=obtener_menu_fijo())
             return
@@ -316,7 +343,7 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 dano = int((stat * 1.5) + random.randint(5, 15))
                 if accion == 'habilidad' and clase in ['Mago', 'Maga']:
                     dano = int(dano * 2)
-                    narracion += "usa magia. Karu es débil a esto. "
+                    narracion += "usa magia. El monstruo es débil a esto. "
                 else:
                     narracion += "usa su habilidad. "
             else:
@@ -334,8 +361,9 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if vida < 0: vida = 0
 
     if hp_monstruo <= 0:
-        narracion += f"\n\n💀 **Karu ha muerto.**\n🌟 *+100 EXP.*"
-        exp += 100
+        exp_ganada = 100 if monstruo['nombre'] == "Karu, el Registrado" else 120
+        narracion += f"\n\n💀 **{monstruo['nombre']} ha muerto.**\n🌟 *+{exp_ganada} EXP.*"
+        exp += exp_ganada
         nuevo_rango = rango
         if exp >= nivel * 100:
             exp -= nivel * 100
@@ -349,7 +377,7 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     (vida, vida_max, mana, atq, mov, intel, exp, nivel, nuevo_rango, user_id))
         conn.commit(); cur.close(); conn.close()
         
-        await query.edit_message_text(narracion, parse_mode="Markdown")
+        await query.edit_message_caption(caption=narracion, parse_mode="Markdown")
         context.user_data['estado'] = 'en_menu'
         await context.bot.send_message(chat_id=update.effective_chat.id, text="Menú activado.", reply_markup=obtener_menu_fijo())
         return
@@ -359,7 +387,7 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bloqueo = datetime.datetime.now() + datetime.timedelta(hours=1)
         cur.execute("UPDATE usuarios SET vida = 0, en_combate = FALSE, bloqueo_hasta = %s WHERE id_telegram = %s", (bloqueo, user_id))
         conn.commit(); cur.close(); conn.close()
-        await query.edit_message_text(narracion, parse_mode="Markdown")
+        await query.edit_message_caption(caption=narracion, parse_mode="Markdown")
         context.user_data['estado'] = 'en_menu'
         await context.bot.send_message(chat_id=update.effective_chat.id, text="Menú activado.", reply_markup=obtener_menu_fijo())
         return
@@ -371,12 +399,12 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("⚔️ Atacar", callback_data='combate_atacar'), InlineKeyboardButton("💨 Esquivar", callback_data='combate_esquivar')],
         [InlineKeyboardButton("🔮 Habilidad", callback_data='combate_habilidad'), InlineKeyboardButton("🏃 Huir", callback_data='combate_huir')]
     ]
-    await query.edit_message_text(
-        f"{narracion}\n\n❤️ Vida: {vida}/{vida_max} | 🔮 Maná: {mana}\n🩸 Karu: {hp_monstruo}/100", 
+    await query.edit_message_caption(
+        caption=f"{narracion}\n\n❤️ Vida: {vida}/{vida_max} | 🔮 Maná: {mana}\n🩸 {monstruo['nombre']}: {hp_monstruo}", 
         reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
     )
 
-# --- TIENDA ---
+# --- TIENDA Y CAJAS ---
 async def tienda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await limpiar_chat(update, context)
@@ -430,20 +458,40 @@ async def comprar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     cur.execute("UPDATE usuarios SET estrellas = estrellas - %s WHERE id_telegram = %s", (precio, user_id))
     
-    if item in ['pocion_vida', 'pocion_mana', 'elixir']:
-        cur.execute("INSERT INTO inventario (id_telegram, item, cantidad) VALUES (%s, %s, 1) ON CONFLICT (id_telegram, item) DO UPDATE SET cantidad = inventario.cantidad + 1", (user_id, item))
-        await query.edit_message_text(f"✅ Has comprado **{item.replace('_', ' ').title()}**.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data='menu_tienda')]]), parse_mode="Markdown")
-    else:
-        await query.edit_message_text(f"📦 Abriste **{item.replace('_', ' ').title()}**.\nGanaste 10 Estrellas ficticias.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data='menu_tienda')]]), parse_mode="Markdown")
+    if item == 'pocion_vida':
+        cur.execute("INSERT INTO inventario (id_telegram, item, tipo, cantidad) VALUES (%s, 'Poción de Vida', 'pocion', 1) ON CONFLICT (id_telegram, item) DO UPDATE SET cantidad = inventario.cantidad + 1", (user_id,))
+        msg = "✅ Has comprado **Poción de Vida**."
+    elif item == 'pocion_mana':
+        cur.execute("INSERT INTO inventario (id_telegram, item, tipo, cantidad) VALUES (%s, 'Poción de Maná', 'pocion', 1) ON CONFLICT (id_telegram, item) DO UPDATE SET cantidad = inventario.cantidad + 1", (user_id,))
+        msg = "✅ Has comprado **Poción de Maná**."
+    elif item == 'elixir':
+        cur.execute("INSERT INTO inventario (id_telegram, item, tipo, cantidad) VALUES (%s, 'Elixir Completo', 'pocion', 1) ON CONFLICT (id_telegram, item) DO UPDATE SET cantidad = inventario.cantidad + 1", (user_id,))
+        msg = "✅ Has comprado **Elixir Completo**."
+    elif item == 'caja_comun':
+        # 70% Poción, 30% Arma
+        if random.randint(1, 100) <= 70:
+            cur.execute("INSERT INTO inventario (id_telegram, item, tipo, cantidad) VALUES (%s, 'Poción de Vida', 'pocion', 1) ON CONFLICT (id_telegram, item) DO UPDATE SET cantidad = inventario.cantidad + 1", (user_id,))
+            msg = "📦 Abriste la Caja Común y encontraste: **Poción de Vida**."
+        else:
+            armas = [("Daga de Óxido", 3), ("Bastón Astillado", 3)]
+            arma, bonus = random.choice(armas)
+            cur.execute("INSERT INTO inventario (id_telegram, item, tipo, stat_bonus, cantidad) VALUES (%s, %s, 'arma', %s, 1) ON CONFLICT (id_telegram, item) DO UPDATE SET cantidad = inventario.cantidad + 1", (user_id, arma, bonus))
+            msg = f"📦 Abriste la Caja Común y encontraste: **{arma}** (+{bonus} Stat)."
+    elif item == 'cofre_epico':
+        armas = [("Filo del Eclipse", 8), ("Cetro del Registro", 8)]
+        arma, bonus = random.choice(armas)
+        cur.execute("INSERT INTO inventario (id_telegram, item, tipo, stat_bonus, cantidad) VALUES (%s, %s, 'arma', %s, 1) ON CONFLICT (id_telegram, item) DO UPDATE SET cantidad = inventario.cantidad + 1", (user_id, arma, bonus))
+        msg = f"🎁 Abriste el Cofre Épico y encontraste: **{arma}** (+{bonus} Stat)."
     
     conn.commit(); cur.close(); conn.close()
+    await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data='menu_tienda')]]), parse_mode="Markdown")
 
-# --- INVENTARIO ---
+# --- INVENTARIO Y EQUIPAMIENTO ---
 async def inventario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await limpiar_chat(update, context)
     conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
-    cur.execute("SELECT item, cantidad FROM inventario WHERE id_telegram = %s", (user_id,))
+    cur.execute("SELECT item, tipo, stat_bonus, cantidad FROM inventario WHERE id_telegram = %s", (user_id,))
     items = cur.fetchall(); cur.close(); conn.close()
 
     if not items:
@@ -451,13 +499,50 @@ async def inventario(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['msg_bienvenida'] = msg.message_id
         return
 
+    keyboard = []
     texto = "🎒 *INVENTARIO*\n\n"
-    for item, cant in items:
-        texto += f"- {item.replace('_', ' ').title()} x{cant}\n"
-    msg = await update.message.reply_text(texto, parse_mode="Markdown")
+    for item, tipo, bonus, cant in items:
+        if tipo == 'arma':
+            texto += f"🗡️ {item} (+{bonus}) x{cant}\n"
+            keyboard.append([InlineKeyboardButton(f"Equipar {item}", callback_data=f"equipar_{item}")])
+        else:
+            texto += f"🧪 {item} x{cant}\n"
+            
+    keyboard.append([InlineKeyboardButton("🔙 Volver al Menú", callback_data='volver_menu')])
+    msg = await update.message.reply_text(texto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     context.user_data['msg_bienvenida'] = msg.message_id
 
-# --- CREADOR (CON REGALO DE ESTRELLAS) ---
+async def equipar_arma(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query; await query.answer()
+    user_id = update.effective_user.id
+    arma = query.data.replace('equipar_', '')
+    
+    conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
+    cur.execute("SELECT stat_bonus FROM inventario WHERE id_telegram = %s AND item = %s", (user_id, arma))
+    bonus = cur.fetchone()[0]
+    
+    # Quitamos el bonus del arma anterior (si tenía)
+    cur.execute("SELECT arma_equipada FROM usuarios WHERE id_telegram = %s", (user_id,))
+    arma_vieja = cur.fetchone()[0]
+    
+    if arma_vieja != 'Ninguna':
+        cur.execute("SELECT stat_bonus FROM inventario WHERE id_telegram = %s AND item = %s", (user_id, arma_vieja))
+        res = cur.fetchone()
+        if res:
+            cur.execute("UPDATE usuarios SET atq = atq - %s WHERE id_telegram = %s", (res[0], user_id))
+    
+    # Equipamos la nueva
+    cur.execute("UPDATE usuarios SET atq = atq + %s, arma_equipada = %s WHERE id_telegram = %s", (bonus, arma, user_id))
+    conn.commit(); cur.close(); conn.close()
+    
+    await query.edit_message_text(f"✅ Has equipado **{arma}**. Tu Ataque ha aumentado.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver al Menú", callback_data='volver_menu')]]), parse_mode="Markdown")
+
+async def volver_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query; await query.answer()
+    await query.edit_message_text("🌑 *Menú activado.* Usa los botones de abajo.", parse_mode="Markdown")
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="Menú activado.", reply_markup=obtener_menu_fijo())
+
+# --- CREADOR ---
 async def creador(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ID_CREADOR: return
     keyboard = [
@@ -477,24 +562,8 @@ async def boton_creador(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("👑 Jefe invocado.")
     
     elif query.data == 'admin_regalar_estrellas':
-        await query.edit_message_text("Escribe el ID del jugador y la cantidad (ej: `6985217869 100`) en el chat.", parse_mode="Markdown")
+        await query.edit_message_text("Escribe el ID del jugador y la cantidad (ej: `6985217869 100`).", parse_mode="Markdown")
         context.user_data['estado'] = 'regalar_estrellas'
-
-# --- MANEJADOR DE TEXTO PARA REGALAR ESTRELLAS ---
-async def manejar_regalo_estrellas(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ID_CREADOR: return
-    try:
-        partes = update.message.text.split()
-        target_id = int(partes[0])
-        cantidad = int(partes[1])
-        
-        conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
-        cur.execute("UPDATE usuarios SET estrellas = estrellas + %s WHERE id_telegram = %s", (cantidad, target_id))
-        conn.commit(); cur.close(); conn.close()
-        
-        await update.message.reply_text(f"⭐ Has regalado {cantidad} Estrellas al ID {target_id}.")
-    except:
-        await update.message.reply_text("❌ Formato incorrecto. Usa: `ID CANTIDAD`", parse_mode="Markdown")
 
 # --- SERVIDOR WEB Y MAIN ---
 class WebServer(BaseHTTPRequestHandler):
@@ -512,7 +581,6 @@ def main():
     app.add_handler(CommandHandler("creador", creador))
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, manejar_mensajes))
-    # Añadimos el manejador para el regalo de estrellas (solo actúa si el estado es correcto)
     
     app.add_handler(CallbackQueryHandler(boton_sexo, pattern='^sexo_'))
     app.add_handler(CallbackQueryHandler(boton_clase, pattern='^clase_'))
@@ -521,6 +589,8 @@ def main():
     app.add_handler(CallbackQueryHandler(tienda_pociones, pattern='^tienda_pociones$'))
     app.add_handler(CallbackQueryHandler(tienda_cajas, pattern='^tienda_cajas$'))
     app.add_handler(CallbackQueryHandler(comprar, pattern='^comprar_'))
+    app.add_handler(CallbackQueryHandler(equipar_arma, pattern='^equipar_'))
+    app.add_handler(CallbackQueryHandler(volver_menu, pattern='^volver_menu$'))
     app.add_handler(CallbackQueryHandler(tienda, pattern='^menu_tienda$'))
     
     print("El Sistema ha despertado. Escuchando...")
