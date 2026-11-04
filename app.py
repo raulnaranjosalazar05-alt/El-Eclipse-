@@ -6,13 +6,17 @@ import random
 import asyncio
 import datetime
 import aiohttp
+import io
+import base64
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
+from together import Together
 
 TOKEN = os.environ.get("TOKEN")
 DATABASE_URL = os.environ.get("DATABASE_URL")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY") 
+TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY") # <-- NUEVA VARIABLE
 PORT = int(os.environ.get("PORT", 8080))
 ID_CREADOR = 6985217869
 
@@ -65,7 +69,7 @@ def init_db():
 # --- FUNCIÓN NARRADORA CON GROQ ---
 async def narrar_con_ia(prompt_sistema, contexto):
     if not GROQ_API_KEY:
-        return None # Si no hay API, devolvemos None para usar el texto por defecto
+        return None 
     
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
@@ -204,7 +208,9 @@ async def boton_sexo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['msg_pregunta_clase'] = msg.message_id
 
 async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query; await query.answer() 
+    query = update.callback_query
+    await query.answer()
+    
     if context.user_data.get('estado') != 'esperando_clase': return
     user_id = update.effective_user.id
     clase_base = query.data.replace('clase_', '') 
@@ -228,40 +234,69 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     s = stats.get(clase_base, stats['ejecutor'])
     
-    # 1. Historia por defecto (instantánea)
-    historia = f"El día que el cielo se tiñó de violeta, {nombre_elegido} despertó con el poder de un {clase_final}."
-    genero_ingles = "man" if sexo_elegido == 'M' else "woman"
-    prompt = urllib.parse.quote(f"portrait of a {genero_ingles} {clase_final}, dark fantasy RPG, neon purple glow")
-    foto_url = f"https://image.pollinations.ai/prompt/{prompt}?width=512&height=512&nologo=true&model=flux&seed={random.randint(1, 9999)}.jpg"
-
-    # 2. Guardar en BD al instante
-    conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO usuarios (id_telegram, nombre, clase, sexo, rango, historia, foto_url, vida, vida_max, mana, mana_max, atq, mov, intel, res, tac, estrellas)
-        VALUES (%s, %s, %s, %s, 'E', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0)
-    """, (user_id, nombre_elegido, clase_final, sexo_elegido, historia, foto_url, s['vida'], s['vida'], s['mana'], s['mana'], s['atq'], s['mov'], s['intel'], s['res'], s['tac']))
-    conn.commit(); cur.close(); conn.close()
-    
-    # 3. Respuesta instantánea (Ficha de texto)
     try: await query.message.delete()
     except: pass
-    
+
     icono_sexo = "♂️" if sexo_elegido == 'M' else "♀️"
     texto_final = (
-        f"✅ *REGISTRO COMPLETADO*\n\n👤 Sujeto: **{nombre_elegido}**\n⚔️ Clase: **{clase_final}**\n{icono_sexo} Sexo: **{'Masculino' if sexo_elegido == 'M' else 'Femenino'}**\n"
-        f"🏅 Rango: **E** | 📊 Nivel: **1**\n\n📖 *Historia:* {historia}\n\n"
-        f"❤️ Vida: {s['vida']} | 🔮 Maná: {s['mana']}\n⚔️ ATQ: {s['atq']} | 💨 MOV: {s['mov']}\n🧠 INT: {s['intel']} | 🛡️ RES: {s['res']} | 🎯 TAC: {s['tac']}\n\n"
-        f"*El Sistema está generando tu foto y tu historia definitiva en segundo plano...*"
+        f"✅ *REGISTRO COMPLETADO*\n\n"
+        f"👤 Sujeto: **{nombre_elegido}**\n"
+        f"⚔️ Clase: **{clase_final}**\n"
+        f"{icono_sexo} Sexo: **{'Masculino' if sexo_elegido == 'M' else 'Femenino'}**\n"
+        f"🏅 Rango: **E** | 📊 Nivel: **1**\n\n"
+        f"❤️ Vida: {s['vida']} | 🔮 Maná: {s['mana']}\n"
+        f"⚔️ ATQ: {s['atq']} | 💨 MOV: {s['mov']}\n"
+        f"🧠 INT: {s['intel']} | 🛡️ RES: {s['res']} | 🎯 TAC: {s['tac']}\n\n"
+        f"🌑 *El Sistema te da la bienvenida.*"
     )
     msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=texto_final, parse_mode="Markdown")
     context.user_data['msg_perfil'] = msg.message_id
 
-    # 4. Menú instantáneo
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="🌑 Usa los botones de abajo para navegar.", reply_markup=obtener_menu_fijo())
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="Usa los botones de abajo.", reply_markup=obtener_menu_fijo())
     context.user_data['estado'] = 'en_menu'
 
-    # 5. Proceso en segundo plano (IA e Imagen)
-    try:
+    async def guardar_y_generar():
+        conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
+        historia_defecto = f"El día que el cielo se tiñó de violeta, {nombre_elegido} despertó con el poder de un {clase_final}."
+        
+        genero_ingles = "man" if sexo_elegido == 'M' else "woman"
+        detalles_clase = {
+            'ejecutor': "holding a massive glowing greatsword, wearing dark heavy armor with neon purple accents, battle scars",
+            'mago': "holding a floating crystal staff, wearing dark robes with glowing runes, arcane energy swirling",
+            'guardian': "wearing massive spiked armor, holding a giant shield, standing firm like a fortress",
+            'asesino': "wearing a dark hooded cloak, holding dual daggers, hidden in the shadows",
+            'arquero': "holding a glowing energy bow, wearing light leather armor, aiming into the distance",
+            'clerigo': "wearing ornate dark robes, holding a glowing holy symbol, surrounded by a faint purple aura"
+        }
+        detalle = detalles_clase.get(clase_base, "wearing dark fantasy armor, holding a weapon")
+        prompt = f"Epic dark fantasy portrait of a {genero_ingles} {clase_final}, {detalle}, standing in front of a glowing purple portal, cinematic lighting, highly detailed, 4k, masterpiece, dark atmosphere, neon purple glow"
+
+        # Guardamos primero en BD para que el personaje exista
+        cur.execute("""
+            INSERT INTO usuarios (id_telegram, nombre, clase, sexo, rango, historia, foto_url, vida, vida_max, mana, mana_max, atq, mov, intel, res, tac, estrellas)
+            VALUES (%s, %s, %s, %s, 'E', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0)
+            ON CONFLICT (id_telegram) DO NOTHING
+        """, (user_id, nombre_elegido, clase_final, sexo_elegido, historia_defecto, "together_ai", s['vida'], s['vida'], s['mana'], s['mana'], s['atq'], s['mov'], s['intel'], s['res'], s['tac']))
+        conn.commit(); cur.close(); conn.close()
+
+        # Llamada a Together.ai para la foto
+        image_data = None
+        try:
+            client = Together(api_key=TOGETHER_API_KEY)
+            response = client.images.generate(
+                model="black-forest-labs/FLUX.1-schnell-Free",
+                prompt=prompt,
+                width=512,
+                height=512,
+                steps=4,
+                n=1,
+                response_format="b64"
+            )
+            image_data = base64.b64decode(response.data[0].b64_json)
+        except Exception as e:
+            print(f"Error con Together.ai: {e}")
+
+        # Pedir historia a Groq
         prompt_historia = f"Eres 'El Sistema'. Escribe una historia de origen épica y oscura (máximo 3 líneas) para un personaje llamado {nombre_elegido}, que es un {clase_final} en un mundo post-apocalíptico llamado 'El Eclipse'."
         historia_ia = await narrar_con_ia(prompt_historia, f"Genera la historia para {nombre_elegido}.")
         
@@ -271,22 +306,25 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
             conn.commit(); cur.close(); conn.close()
             historia_final = historia_ia
         else:
-            historia_final = historia
+            historia_final = historia_defecto
 
         texto_foto = (
-            f"🌑 *REGISTRO VISUAL Y HISTORIA DEFINITIVA*\n\n"
+            f"🌑 *REGISTRO VISUAL*\n\n"
             f"👤 Sujeto: **{nombre_elegido}**\n\n"
             f"📖 *Historia:*\n{historia_final}\n\n"
-            f"💡 *Sugerencia del Sistema:* Puedes guardar esta imagen y ponértela en tu perfil de Telegram, junto con tu nombre de Sujeto, para que todos sepan a quién están mirando."
+            f"💡 *Sugerencia:* Guarda esta imagen y úsala en tu perfil de Telegram."
         )
         
-        await context.bot.send_photo(
-            chat_id=update.effective_chat.id, photo=foto_url, 
-            caption=texto_foto,
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        print(f"Error en segundo plano: {e}")
+        if image_data:
+            try:
+                await context.bot.send_photo(chat_id=update.effective_chat.id, photo=io.BytesIO(image_data), caption=texto_foto, parse_mode="Markdown")
+            except Exception as e:
+                print(f"Error enviando foto: {e}")
+                await context.bot.send_message(chat_id=update.effective_chat.id, text=f"⚠️ Fallo al enviar imagen, pero aquí está tu historia:\n\n{historia_final}")
+        else:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"⚠️ El Sistema no pudo generar tu imagen visual, pero tu personaje está listo.\n\n📖 *Historia:* {historia_final}", parse_mode="Markdown")
+
+    asyncio.create_task(guardar_y_generar())
 
 # --- PERFIL ---
 async def perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -305,12 +343,9 @@ async def perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🗡️ Arma: **{arma_equipada}**\n❤️ Vida: {vida}/{vida_max} | 🔮 Maná: {mana}/{mana_max}\n"
             f"⚔️ ATQ: {atq} | 💨 MOV: {mov} | 🧠 INT: {intel}\n🛡️ RES: {res} | 🎯 TAC: {tac}\n\n⚡ *Energía:* {energia}/5 | ⭐ *Estrellas:* {estrellas}"
         )
-        try:
-            msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=foto_url, caption=texto, parse_mode="Markdown")
-            context.user_data['msg_perfil'] = msg.message_id
-        except:
-            msg = await update.message.reply_text(texto, parse_mode="Markdown")
-            context.user_data['msg_perfil'] = msg.message_id
+        # Intentamos mandar la foto si la tenemos guardada (por ahora texto)
+        msg = await update.message.reply_text(texto, parse_mode="Markdown")
+        context.user_data['msg_perfil'] = msg.message_id
 
 # --- PORTAL ---
 async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -507,7 +542,7 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
     )
 
-# --- TIENDA, INVENTARIO Y CREADOR (Iguales) ---
+# --- TIENDA, INVENTARIO Y CREADOR ---
 async def tienda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await limpiar_chat(update, context)
