@@ -218,7 +218,6 @@ async def boton_sexo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('estado') != 'esperando_sexo': return
     context.user_data['sexo_temp'] = "M" if query.data == 'sexo_m' else "F"
     context.user_data['estado'] = 'esperando_clase'
-    # --- CLASES 3 Y 3 ---
     keyboard = [
         [InlineKeyboardButton("⚔️ Ejecutor", callback_data='clase_ejecutor'), InlineKeyboardButton("🔮 Mago", callback_data='clase_mago'), InlineKeyboardButton("🛡️ Guardián", callback_data='clase_guardian')],
         [InlineKeyboardButton("🗡️ Asesino", callback_data='clase_asesino'), InlineKeyboardButton("🏹 Arquero", callback_data='clase_arquero'), InlineKeyboardButton("✨ Clérigo", callback_data='clase_clerigo')]
@@ -486,7 +485,6 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try: await query.edit_message_caption(caption=f"{narracion_epica}", parse_mode="Markdown")
         except: await query.edit_message_text(f"{narracion_epica}", parse_mode="Markdown")
         
-        # Borrar foto del monstruo
         msg_foto_id = context.user_data.get('msg_combate')
         if msg_foto_id:
             try: await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_foto_id)
@@ -589,8 +587,8 @@ async def comprar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         partes = item.split("_")
         nombre_arma = partes[1]
         clase_original = partes[2]
-        precio = 15 if "Tier 1" in nombre_arma else 40 # Simplificado para el ejemplo
-        # Buscamos el precio real
+        precio = 15
+        stat_bonus = 5
         for c, armas_lista in ARMAS.items():
             for a in armas_lista:
                 if a['nombre'] == nombre_arma:
@@ -604,7 +602,6 @@ async def comprar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if estrellas < precio: await query.answer("❌ Sin Estrellas.", show_alert=True); return
         
-        # Penalización por herejía
         if clase_jugador.lower() != clase_original.lower():
             stat_bonus = stat_bonus // 2
             
@@ -632,10 +629,10 @@ async def comprar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if random.randint(1, 100) <= 70:
             cur.execute("INSERT INTO inventario (id_telegram, item, tipo, cantidad) VALUES (%s, 'Poción de Vida', 'pocion', 1) ON CONFLICT (id_telegram, item) DO UPDATE SET cantidad = inventario.cantidad + 1", (user_id,)); msg = "📦 Poción Vida."
         else:
-            arma, bonus = random.choice([("Daga de Óxido", 3), ("Bastón Astillado", 3)])
+            arma, bonus = random.choice([("Daga de Óxido", 5), ("Bastón Astillado", 5)])
             cur.execute("INSERT INTO inventario (id_telegram, item, tipo, stat_bonus, cantidad) VALUES (%s, %s, 'arma', %s, 1) ON CONFLICT (id_telegram, item) DO UPDATE SET cantidad = inventario.cantidad + 1", (user_id, arma, bonus)); msg = f"📦 {arma} (+{bonus})."
     elif item == 'cofre_epico':
-        arma, bonus = random.choice([("Filo del Eclipse", 8), ("Cetro del Registro", 8)])
+        arma, bonus = random.choice([("Filo del Eclipse", 10), ("Cetro del Registro", 10)])
         cur.execute("INSERT INTO inventario (id_telegram, item, tipo, stat_bonus, cantidad) VALUES (%s, %s, 'arma', %s, 1) ON CONFLICT (id_telegram, item) DO UPDATE SET cantidad = inventario.cantidad + 1", (user_id, arma, bonus)); msg = f"🎁 {arma} (+{bonus})."
     conn.commit(); cur.close(); conn.close()
     await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data='menu_tienda')]]), parse_mode="Markdown")
