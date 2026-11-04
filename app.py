@@ -14,6 +14,7 @@ def init_db():
     try:
         conn = psycopg2.connect(DATABASE_URL, sslmode='require')
         cur = conn.cursor()
+        # Borramos la tabla para actualizar el cambio de Filo a Ejecutor y los rangos
         cur.execute("DROP TABLE IF EXISTS usuarios;")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS usuarios (
@@ -85,18 +86,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cur.close()
     conn.close()
 
-# --- MANEJADOR GLOBAL (Bloquea todo lo que no sea texto en el momento adecuado) ---
+# --- MANEJADOR DE MENSAJES (Acepta todo pero filtra) ---
 async def manejar_mensajes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     estado = context.user_data.get('estado')
 
-    # Si estamos esperando nombre, solo permitimos texto
     if estado == 'esperando_nombre':
+        # Si el mensaje no es texto, lo borramos y avisamos
         if not update.message.text:
             try:
                 await update.message.delete() 
             except:
                 pass
-            await update.message.reply_text("⚠️ El Sistema no procesa esto. **Escribe tu nombre con letras.**", parse_mode="Markdown")
+            await update.message.reply_text("⚠️ El Sistema no procesa imágenes ni audios. **Escribe tu nombre con letras.**", parse_mode="Markdown")
             return
             
         nombre_elegido = update.message.text
@@ -124,9 +125,8 @@ async def manejar_mensajes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Si estamos esperando un botón, ignoramos cualquier texto o archivo que envíen
+    # Si está esperando un botón y envía texto/foto, lo borramos en silencio
     if estado in ['esperando_sexo', 'esperando_clase']:
-        # Opcional: Borrar el mensaje para mantener el chat limpio
         try:
             await update.message.delete()
         except:
@@ -146,7 +146,7 @@ async def boton_sexo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['estado'] = 'esperando_clase'
     
     keyboard = [
-        [InlineKeyboardButton("⚔️ Filo", callback_data='clase_filo')],
+        [InlineKeyboardButton("⚔️ Ejecutor/a", callback_data='clase_ejecutor')],
         [InlineKeyboardButton("🔮 Mago/a", callback_data='clase_mago')],
         [InlineKeyboardButton("🛡️ Guardián/na", callback_data='clase_guardian')],
         [InlineKeyboardButton("🗡️ Asesino/a", callback_data='clase_asesino')],
@@ -176,8 +176,9 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sexo_elegido = context.user_data.get('sexo_temp', 'M')
     maestro_id = context.user_data.get('maestro_id', None)
     
+    # Cambiado oficialmente a EJECUTOR
     nombres_clases = {
-        'filo': {'M': 'Filo', 'F': 'Filo'},
+        'ejecutor': {'M': 'Ejecutor', 'F': 'Ejecutora'},
         'mago': {'M': 'Mago', 'F': 'Maga'},
         'guardian': {'M': 'Guardián', 'F': 'Guardiana'},
         'asesino': {'M': 'Asesino', 'F': 'Asesina'},
@@ -185,10 +186,10 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'clerigo': {'M': 'Clérigo', 'F': 'Clériga'}
     }
     
-    clase_final = nombres_clases.get(clase_base, nombres_clases['filo'])[sexo_elegido]
+    clase_final = nombres_clases.get(clase_base, nombres_clases['ejecutor'])[sexo_elegido]
     
     stats = {
-        'filo':     {'vida': 120, 'atq': 25, 'mov': 15, 'intel': 5,  'res': 15, 'tac': 15},
+        'ejecutor': {'vida': 120, 'atq': 25, 'mov': 15, 'intel': 5,  'res': 15, 'tac': 15},
         'mago':     {'vida': 80,  'atq': 5,  'mov': 10, 'intel': 25, 'res': 10, 'tac': 25},
         'guardian': {'vida': 180, 'atq': 10, 'mov': 5,  'intel': 10, 'res': 25, 'tac': 25},
         'asesino':  {'vida': 90,  'atq': 20, 'mov': 25, 'intel': 5,  'res': 5,  'tac': 20},
@@ -196,7 +197,7 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'clerigo':  {'vida': 110, 'atq': 10, 'mov': 10, 'intel': 20, 'res': 15, 'tac': 20}
     }
     
-    s = stats.get(clase_base, stats['filo'])
+    s = stats.get(clase_base, stats['ejecutor'])
     
     conn = psycopg2.connect(DATABASE_URL, sslmode='require')
     cur = conn.cursor()
@@ -232,7 +233,7 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     texto_final += "*El Sistema te observa. Prepárate para el primer portal.*"
     
-    context.user_data['estado'] = 'en_menu' # El usuario ya terminó el registro
+    context.user_data['estado'] = 'en_menu'
     
     await query.edit_message_text(text=texto_final, parse_mode="Markdown")
 
@@ -253,8 +254,8 @@ def main():
     
     app.add_handler(CommandHandler("start", start))
     
-    # Este manejador atrapará TODO (textos, fotos, videos, etc.) y decidirá qué hacer
-    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, manejar_mensajes))
+    # Atrapamos TODO tipo de mensaje que no sea un comando
+    app.add_handler(MessageHandler(~filters.COMMAND, manejar_mensajes))
     
     app.add_handler(CallbackQueryHandler(boton_sexo, pattern='^sexo_'))
     app.add_handler(CallbackQueryHandler(boton_clase, pattern='^clase_'))
