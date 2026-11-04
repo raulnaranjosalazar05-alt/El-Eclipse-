@@ -6,7 +6,6 @@ import random
 import asyncio
 import datetime
 import aiohttp
-import io
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
@@ -14,7 +13,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandl
 TOKEN = os.environ.get("TOKEN")
 DATABASE_URL = os.environ.get("DATABASE_URL")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY") 
-POLLINATIONS_API_KEY = os.environ.get("POLLINATIONS_API_KEY") # <-- NUEVA CLAVE
+POLLINATIONS_API_KEY = os.environ.get("POLLINATIONS_API_KEY")
 PORT = int(os.environ.get("PORT", 8080))
 ID_CREADOR = 6985217869
 
@@ -269,10 +268,9 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         detalle = detalles_clase.get(clase_base, "wearing dark fantasy armor, holding a weapon")
         prompt = f"Epic dark fantasy portrait of a {genero_ingles} {clase_final}, {detalle}, standing in front of a glowing purple portal, cinematic lighting, highly detailed, 4k, masterpiece, dark atmosphere, neon purple glow"
 
-        # URL CON LA API KEY DE POLLINATIONS
-        foto_url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(prompt)}?width=512&height=512&nologo=true&model=flux&seed={random.randint(1, 9999)}&token={POLLINATIONS_API_KEY}"
+        # URL CORREGIDA CON LA API KEY Y EL DOMINIO GEN
+        foto_url = f"https://gen.pollinations.ai/image/{urllib.parse.quote(prompt)}?width=512&height=512&nologo=true&model=flux&seed={random.randint(1, 9999)}&key={POLLINATIONS_API_KEY}"
 
-        # Guardamos primero en BD para que el personaje exista
         cur.execute("""
             INSERT INTO usuarios (id_telegram, nombre, clase, sexo, rango, historia, foto_url, vida, vida_max, mana, mana_max, atq, mov, intel, res, tac, estrellas)
             VALUES (%s, %s, %s, %s, 'E', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0)
@@ -280,7 +278,6 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """, (user_id, nombre_elegido, clase_final, sexo_elegido, historia_defecto, foto_url, s['vida'], s['vida'], s['mana'], s['mana'], s['atq'], s['mov'], s['intel'], s['res'], s['tac']))
         conn.commit(); cur.close(); conn.close()
 
-        # Pedir historia a Groq
         prompt_historia = f"Eres 'El Sistema'. Escribe una historia de origen épica y oscura (máximo 3 líneas) para un personaje llamado {nombre_elegido}, que es un {clase_final} en un mundo post-apocalíptico llamado 'El Eclipse'."
         historia_ia = await narrar_con_ia(prompt_historia, f"Genera la historia para {nombre_elegido}.")
         
@@ -369,8 +366,9 @@ async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔮 Habilidad", callback_data='combate_habilidad'), InlineKeyboardButton("🏃 Huir", callback_data='combate_huir')]
     ]
     
+    # URL CORREGIDA PARA EL MONSTRUO
     prompt_m = urllib.parse.quote(f"epic dark fantasy monster {monstruo['nombre']}, purple neon portal background")
-    foto_url_m = f"https://image.pollinations.ai/prompt/{prompt_m}?width=512&height=512&nologo=true&model=flux&seed={monstruo['seed']}&token={POLLINATIONS_API_KEY}"
+    foto_url_m = f"https://gen.pollinations.ai/image/{prompt_m}?width=512&height=512&nologo=true&model=flux&seed={monstruo['seed']}&key={POLLINATIONS_API_KEY}"
     
     texto = f"🩸 *PORTAL ABIERTO*\n\n**{monstruo['nombre']}** ha aparecido.\n❤️ Vida: {monstruo['hp']}\n\n*¿Qué harás?*"
     
