@@ -199,18 +199,20 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """, (user_id, nombre_elegido, clase_final, sexo_elegido, historia, foto_url, s['vida'], s['vida'], s['mana'], s['mana'], s['atq'], s['mov'], s['intel'], s['res'], s['tac']))
     conn.commit(); cur.close(); conn.close()
     
-    # Primero el texto para que el bot responda rápido
     try: await query.message.delete()
     except: pass
-    
+
     texto_final = (
-        f"✅ *REGISTRO COMPLETADO*\n\n👤 Sujeto: **{nombre_elegido}**\n⚔️ Clase: **{clase_final}**\n"
-        f"🏅 Rango: **E** | 📊 Nivel: **1**\n\n📖 *Historia:* {historia}\n\n*Generando registro visual...*"
+        f"✅ *REGISTRO COMPLETADO*\n\n"
+        f"👤 Sujeto: **{nombre_elegido}**\n"
+        f"⚔️ Clase: **{clase_final}**\n"
+        f"🏅 Rango: **E** | 📊 Nivel: **1**\n\n"
+        f"📖 *Historia:* {historia}\n\n"
+        f"*El Sistema está generando tu registro visual. Espera un momento...*"
     )
-    msg = await update.message.reply_text(texto_final, parse_mode="Markdown")
+    msg = await context.bot.send_message(chat_id=update.effective_chat.id, text=texto_final, parse_mode="Markdown")
     context.user_data['msg_perfil'] = msg.message_id
 
-    # Luego la foto (si falla, no rompe el bot)
     try:
         await context.bot.send_photo(
             chat_id=update.effective_chat.id, photo=foto_url, 
@@ -220,7 +222,7 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         pass
 
-    await update.message.reply_text("🌑 Usa los botones de abajo.", reply_markup=obtener_menu_fijo())
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="🌑 Usa los botones de abajo para navegar.", reply_markup=obtener_menu_fijo())
     context.user_data['estado'] = 'en_menu'
 
 # --- PERFIL ---
@@ -244,7 +246,7 @@ async def perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = await context.bot.send_photo(chat_id=update.effective_chat.id, photo=foto_url, caption=texto, parse_mode="Markdown")
         context.user_data['msg_perfil'] = msg.message_id
 
-# --- PORTAL (COMBATE CON MONSTRUOS ALEATORIOS) ---
+# --- PORTAL (COMBATE) ---
 async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await limpiar_chat(update, context)
@@ -265,10 +267,9 @@ async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['msg_error'] = msg.message_id
         return
 
-    # Elegir monstruo (Karu o Vex)
     monstruos = [
-        {"nombre": "Karu, el Registrado", "hp": 100, "seed": 100},
-        {"nombre": "Vex, Sujeto 07", "hp": 120, "seed": 200}
+        {"nombre": "Karu, el Registrado", "hp": 100, "seed": 100, "exp": 100},
+        {"nombre": "Vex, Sujeto 07", "hp": 120, "seed": 200, "exp": 120}
     ]
     monstruo = random.choice(monstruos)
     
@@ -283,7 +284,6 @@ async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔮 Habilidad", callback_data='combate_habilidad'), InlineKeyboardButton("🏃 Huir", callback_data='combate_huir')]
     ]
     
-    # Imagen fija del monstruo usando el seed
     prompt_m = urllib.parse.quote(f"epic dark fantasy monster {monstruo['nombre']}, purple neon portal background")
     foto_url_m = f"https://image.pollinations.ai/prompt/{prompt_m}?width=512&height=512&nologo=true&model=flux&seed={monstruo['seed']}"
     
@@ -300,7 +300,7 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     accion = query.data.replace('combate_', '')
     user_id = update.effective_user.id
     frase = context.user_data.get('frase_epica', '')
-    monstruo = context.user_data.get('monstruo', {"nombre": "Karu, el Registrado", "hp": 100})
+    monstruo = context.user_data.get('monstruo', {"nombre": "Karu", "hp": 100, "exp": 100})
     context.user_data['frase_epica'] = ''
 
     await query.edit_message_caption(caption="⏳ *Calculando destino...*", parse_mode="Markdown")
@@ -361,7 +361,7 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if vida < 0: vida = 0
 
     if hp_monstruo <= 0:
-        exp_ganada = 100 if monstruo['nombre'] == "Karu, el Registrado" else 120
+        exp_ganada = monstruo['exp']
         narracion += f"\n\n💀 **{monstruo['nombre']} ha muerto.**\n🌟 *+{exp_ganada} EXP.*"
         exp += exp_ganada
         nuevo_rango = rango
@@ -415,7 +415,8 @@ async def tienda(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = [
         [InlineKeyboardButton("🧪 Pociones", callback_data='tienda_pociones'), InlineKeyboardButton("🎁 Cajas", callback_data='tienda_cajas')],
-        [InlineKeyboardButton("💍 Pactos", callback_data='tienda_pactos'), InlineKeyboardButton("👑 Bendiciones", callback_data='tienda_bendiciones')]
+        [InlineKeyboardButton("💍 Pactos", callback_data='tienda_pactos'), InlineKeyboardButton("👑 Bendiciones", callback_data='tienda_bendiciones')],
+        [InlineKeyboardButton("🔙 Volver al Menú", callback_data='volver_menu')]
     ]
     msg = await update.message.reply_text(
         f"🛒 *MERCADO DEL SISTEMA*\n\n⭐ Tus Estrellas: **{estrellas}**\n\nElige una categoría:", 
@@ -428,7 +429,8 @@ async def tienda_pociones(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("🧪 Poción Vida (50 HP) - 5⭐", callback_data='comprar_pocion_vida')],
         [InlineKeyboardButton("🔮 Poción Maná (50 MP) - 5⭐", callback_data='comprar_pocion_mana')],
-        [InlineKeyboardButton("🧪 Elixir Completo - 15⭐", callback_data='comprar_elixir')]
+        [InlineKeyboardButton("🧪 Elixir Completo - 15⭐", callback_data='comprar_elixir')],
+        [InlineKeyboardButton("🔙 Volver", callback_data='menu_tienda')]
     ]
     await query.edit_message_text("🧪 *POCIONES*\nRestaura tu salud o maná.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
@@ -436,7 +438,8 @@ async def tienda_cajas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
     keyboard = [
         [InlineKeyboardButton("📦 Caja Común - 10⭐", callback_data='comprar_caja_comun')],
-        [InlineKeyboardButton("🎁 Cofre Épico - 30⭐", callback_data='comprar_cofre_epico')]
+        [InlineKeyboardButton("🎁 Cofre Épico - 30⭐", callback_data='comprar_cofre_epico')],
+        [InlineKeyboardButton("🔙 Volver", callback_data='menu_tienda')]
     ]
     await query.edit_message_text("🎁 *CAJAS*\nPrueba tu suerte.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
@@ -468,7 +471,6 @@ async def comprar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cur.execute("INSERT INTO inventario (id_telegram, item, tipo, cantidad) VALUES (%s, 'Elixir Completo', 'pocion', 1) ON CONFLICT (id_telegram, item) DO UPDATE SET cantidad = inventario.cantidad + 1", (user_id,))
         msg = "✅ Has comprado **Elixir Completo**."
     elif item == 'caja_comun':
-        # 70% Poción, 30% Arma
         if random.randint(1, 100) <= 70:
             cur.execute("INSERT INTO inventario (id_telegram, item, tipo, cantidad) VALUES (%s, 'Poción de Vida', 'pocion', 1) ON CONFLICT (id_telegram, item) DO UPDATE SET cantidad = inventario.cantidad + 1", (user_id,))
             msg = "📦 Abriste la Caja Común y encontraste: **Poción de Vida**."
@@ -521,7 +523,6 @@ async def equipar_arma(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cur.execute("SELECT stat_bonus FROM inventario WHERE id_telegram = %s AND item = %s", (user_id, arma))
     bonus = cur.fetchone()[0]
     
-    # Quitamos el bonus del arma anterior (si tenía)
     cur.execute("SELECT arma_equipada FROM usuarios WHERE id_telegram = %s", (user_id,))
     arma_vieja = cur.fetchone()[0]
     
@@ -531,7 +532,6 @@ async def equipar_arma(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if res:
             cur.execute("UPDATE usuarios SET atq = atq - %s WHERE id_telegram = %s", (res[0], user_id))
     
-    # Equipamos la nueva
     cur.execute("UPDATE usuarios SET atq = atq + %s, arma_equipada = %s WHERE id_telegram = %s", (bonus, arma, user_id))
     conn.commit(); cur.close(); conn.close()
     
