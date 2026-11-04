@@ -12,7 +12,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandl
 
 TOKEN = os.environ.get("TOKEN")
 DATABASE_URL = os.environ.get("DATABASE_URL")
-POLLINATIONS_API_KEY = os.environ.get("POLLINATIONS_API_KEY")
+HF_TOKEN = os.environ.get("HF_TOKEN") # <-- TU TOKEN DE HUGGING FACE
 PORT = int(os.environ.get("PORT", 8080))
 ID_CREADOR = 6985217869
 
@@ -80,22 +80,23 @@ def init_db():
     except Exception as e:
         print(f"❌ ERROR DE BD: {e}")
 
-# --- FUNCIÓN NARRADORA CON POLLINATIONS (TEXTO) ---
+# --- FUNCIÓN NARRADORA CON HUGGING FACE (TEXTO) ---
 async def narrar_con_ia(prompt_sistema, contexto):
-    if not POLLINATIONS_API_KEY:
-        print("❌ POLLINATIONS_API_KEY no configurada.")
+    if not HF_TOKEN:
+        print("❌ HF_TOKEN no configurado.")
         return None 
     
-    url = "https://gen.pollinations.ai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {POLLINATIONS_API_KEY}", "Content-Type": "application/json"}
+    # Router oficial de Hugging Face (compatible con OpenAI)
+    url = "https://router.huggingface.co/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {HF_TOKEN}", "Content-Type": "application/json"}
     payload = {
-        "model": "openai", 
+        "model": "Qwen/Qwen2.5-7B-Instruct", # Modelo gratuito y rápido
         "messages": [{"role": "system", "content": prompt_sistema}, {"role": "user", "content": contexto}],
         "max_tokens": 120, "temperature": 0.8
     }
     
     try:
-        timeout = aiohttp.ClientTimeout(total=15)
+        timeout = aiohttp.ClientTimeout(total=20)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(url, headers=headers, json=payload) as response:
                 if response.status == 200:
@@ -103,32 +104,35 @@ async def narrar_con_ia(prompt_sistema, contexto):
                     texto = data['choices'][0]['message']['content'].strip()
                     return texto.replace('*', '').replace('_', '')
                 else:
-                    print(f"❌ Error Pollinations Texto: {response.status} - {await response.text()}")
+                    print(f"❌ Error HF Texto: {response.status} - {await response.text()}")
                     return None
     except Exception as e: 
-        print(f"❌ Error Pollinations Excepcion: {e}")
+        print(f"❌ Error HF Texto Excepcion: {e}")
         return None
 
-# --- FUNCIÓN PARA GENERAR FOTO CON POLLINATIONS (SIN MARCA) ---
-async def generar_foto_pollinations(prompt, seed):
-    if not POLLINATIONS_API_KEY:
-        print("❌ POLLINATIONS_API_KEY no configurada.")
+# --- FUNCIÓN PARA GENERAR FOTO CON HUGGING FACE (SIN MARCA) ---
+async def generar_foto_huggingface(prompt, seed):
+    if not HF_TOKEN:
+        print("❌ HF_TOKEN no configurado.")
         return None
     
-    url = f"https://gen.pollinations.ai/image/{urllib.parse.quote(prompt)}?width=512&height=512&nologo=true&model=flux&seed={seed}"
-    headers = {"Authorization": f"Bearer {POLLINATIONS_API_KEY}"}
+    # Modelo FLUX.1-schnell (gratis y sin marca de agua)
+    API_URL = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell"
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+    payload = {"inputs": prompt}
     
     try:
-        timeout = aiohttp.ClientTimeout(total=25)
+        timeout = aiohttp.ClientTimeout(total=40)
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url, headers=headers) as response:
+            async with session.post(API_URL, headers=headers, json=payload) as response:
                 if response.status == 200:
-                    return await response.read() # Devolvemos los bytes
+                    print("✅ Foto generada con Hugging Face (sin marca).")
+                    return await response.read()
                 else:
-                    print(f"❌ Error Pollinations Foto: {response.status}")
+                    print(f"❌ Error HF Foto: {response.status} - {await response.text()}")
                     return None
     except Exception as e:
-        print(f"❌ Error Pollinations Foto Excepcion: {e}")
+        print(f"❌ Error HF Foto Excepcion: {e}")
         return None
 
 # --- LIMPIAR CHAT ---
@@ -278,14 +282,14 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         detalle = detalles_clase.get(clase_base, "wearing dark fantasy armor, holding a weapon")
         prompt = f"Epic dark fantasy portrait of a {genero_ingles} {clase_final}, {detalle}, standing in front of a glowing purple portal, cinematic lighting, highly detailed, 4k, masterpiece, dark atmosphere, neon purple glow"
         
-        # Generar Foto
-        image_bytes = await generar_foto_pollinations(prompt, random.randint(1, 9999))
+        # Generar Foto con Hugging Face (Sin marca)
+        image_bytes = await generar_foto_huggingface(prompt, random.randint(1, 9999))
 
         cur.execute("""
             INSERT INTO usuarios (id_telegram, nombre, clase, sexo, rango, historia, foto_url, vida, vida_max, mana, mana_max, atq, mov, intel, res, tac, estrellas)
             VALUES (%s, %s, %s, %s, 'E', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0)
             ON CONFLICT (id_telegram) DO NOTHING
-        """, (user_id, nombre_elegido, clase_final, sexo_elegido, historia_final, "url_placeholder", s['vida'], s['vida'], s['mana'], s['mana'], s['atq'], s['mov'], s['intel'], s['res'], s['tac']))
+        """, (user_id, nombre_elegido, clase_final, sexo_elegido, historia_final, "hf_image", s['vida'], s['vida'], s['mana'], s['mana'], s['atq'], s['mov'], s['intel'], s['res'], s['tac']))
         conn.commit(); cur.close(); conn.close()
 
         texto_foto = f"🌑 *REGISTRO VISUAL*\n\n👤 Sujeto: **{nombre_elegido}**\n\n📖 *Historia:*\n{historia_final}\n\n💡 *Sugerencia:* Guarda esta imagen y úsala en tu perfil de Telegram."
@@ -366,8 +370,8 @@ async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     prompt_m = f"epic dark fantasy monster {monstruo['nombre']}, purple neon portal background, cinematic, highly detailed"
     
-    # Generar Foto del Monstruo
-    image_bytes = await generar_foto_pollinations(prompt_m, monstruo['seed'])
+    # Generar Foto del Monstruo con Hugging Face
+    image_bytes = await generar_foto_huggingface(prompt_m, monstruo['seed'])
     
     texto = f"🩸 *PORTAL ABIERTO*\n\n**{monstruo['nombre']}** ha aparecido.\n❤️ Vida: {monstruo['hp']}\n\n*¿Qué harás?*"
     
@@ -392,7 +396,6 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     monstruo = context.user_data.get('monstruo', {"nombre": "Karu", "hp": 100, "exp": 100, "atk": 10, "debilidad": "Mago", "resistencia": "Ejecutor"})
     context.user_data['frase_epica'] = ''
 
-    # Arreglo de edición de mensaje
     try: await query.edit_message_caption(caption="⏳ *Calculando destino...*", parse_mode="Markdown")
     except: 
         try: await query.edit_message_text("⏳ *Calculando destino...*", parse_mode="Markdown")
