@@ -6,17 +6,18 @@ import random
 import asyncio
 import datetime
 import aiohttp
+import io
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 
 TOKEN = os.environ.get("TOKEN")
 DATABASE_URL = os.environ.get("DATABASE_URL")
-HF_TOKEN = os.environ.get("HF_TOKEN") # <-- TU TOKEN DE HUGGING FACE
+HF_TOKEN = os.environ.get("HF_TOKEN")
 PORT = int(os.environ.get("PORT", 8080))
 ID_CREADOR = 6985217869
 
-# --- BESTIARIO CON DEBILIDADES Y RESISTENCIAS ---
+# --- BESTIARIO ---
 MONSTRUOS = {
     "E": [
         {"nombre": "Karu, el Registrado", "hp": 100, "atk": 10, "seed": 101, "exp": 100, "debilidad": "Mago", "resistencia": "Ejecutor"},
@@ -80,59 +81,48 @@ def init_db():
     except Exception as e:
         print(f"❌ ERROR DE BD: {e}")
 
-# --- FUNCIÓN NARRADORA CON HUGGING FACE (TEXTO) ---
+# --- NARRADOR (HUGGING FACE TEXTO) ---
 async def narrar_con_ia(prompt_sistema, contexto):
-    if not HF_TOKEN:
-        print("❌ HF_TOKEN no configurado.")
-        return None 
-    
-    # Router oficial de Hugging Face (compatible con OpenAI)
+    if not HF_TOKEN: return None 
     url = "https://router.huggingface.co/v1/chat/completions"
     headers = {"Authorization": f"Bearer {HF_TOKEN}", "Content-Type": "application/json"}
     payload = {
-        "model": "Qwen/Qwen2.5-7B-Instruct", # Modelo gratuito y rápido
+        "model": "Qwen/Qwen2.5-7B-Instruct", 
         "messages": [{"role": "system", "content": prompt_sistema}, {"role": "user", "content": contexto}],
-        "max_tokens": 120, "temperature": 0.8
+        "max_tokens": 100, "temperature": 0.8
     }
-    
     try:
         timeout = aiohttp.ClientTimeout(total=20)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(url, headers=headers, json=payload) as response:
                 if response.status == 200:
                     data = await response.json()
-                    texto = data['choices'][0]['message']['content'].strip()
-                    return texto.replace('*', '').replace('_', '')
+                    return data['choices'][0]['message']['content'].strip().replace('*', '').replace('_', '')
                 else:
-                    print(f"❌ Error HF Texto: {response.status} - {await response.text()}")
+                    print(f"❌ Error HF Texto: {response.status}")
                     return None
     except Exception as e: 
-        print(f"❌ Error HF Texto Excepcion: {e}")
+        print(f"❌ Error HF Texto: {e}")
         return None
 
-# --- FUNCIÓN PARA GENERAR FOTO CON HUGGING FACE (SIN MARCA) ---
-async def generar_foto_huggingface(prompt, seed):
-    if not HF_TOKEN:
-        print("❌ HF_TOKEN no configurado.")
-        return None
-    
-    # Modelo FLUX.1-schnell (gratis y sin marca de agua)
-    API_URL = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell"
+# --- FOTO (HUGGING FACE IMAGEN - SIN MARCA) ---
+async def generar_foto_huggingface(prompt):
+    if not HF_TOKEN: return None
+    # Usamos Stable Diffusion XL (Gratis y sin marca de agua)
+    API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
     payload = {"inputs": prompt}
-    
     try:
-        timeout = aiohttp.ClientTimeout(total=40)
+        timeout = aiohttp.ClientTimeout(total=45)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(API_URL, headers=headers, json=payload) as response:
                 if response.status == 200:
-                    print("✅ Foto generada con Hugging Face (sin marca).")
                     return await response.read()
                 else:
-                    print(f"❌ Error HF Foto: {response.status} - {await response.text()}")
+                    print(f"❌ Error HF Foto: {response.status}")
                     return None
     except Exception as e:
-        print(f"❌ Error HF Foto Excepcion: {e}")
+        print(f"❌ Error HF Foto: {e}")
         return None
 
 # --- LIMPIAR CHAT ---
@@ -282,8 +272,7 @@ async def boton_clase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         detalle = detalles_clase.get(clase_base, "wearing dark fantasy armor, holding a weapon")
         prompt = f"Epic dark fantasy portrait of a {genero_ingles} {clase_final}, {detalle}, standing in front of a glowing purple portal, cinematic lighting, highly detailed, 4k, masterpiece, dark atmosphere, neon purple glow"
         
-        # Generar Foto con Hugging Face (Sin marca)
-        image_bytes = await generar_foto_huggingface(prompt, random.randint(1, 9999))
+        image_bytes = await generar_foto_huggingface(prompt)
 
         cur.execute("""
             INSERT INTO usuarios (id_telegram, nombre, clase, sexo, rango, historia, foto_url, vida, vida_max, mana, mana_max, atq, mov, intel, res, tac, estrellas)
@@ -370,8 +359,7 @@ async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     prompt_m = f"epic dark fantasy monster {monstruo['nombre']}, purple neon portal background, cinematic, highly detailed"
     
-    # Generar Foto del Monstruo con Hugging Face
-    image_bytes = await generar_foto_huggingface(prompt_m, monstruo['seed'])
+    image_bytes = await generar_foto_huggingface(prompt_m)
     
     texto = f"🩸 *PORTAL ABIERTO*\n\n**{monstruo['nombre']}** ha aparecido.\n❤️ Vida: {monstruo['hp']}\n\n*¿Qué harás?*"
     
@@ -441,8 +429,10 @@ async def boton_combate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             dano = atq + random.randint(1, 10)
             accion_texto = f"El Sujeto {nombre} ataca con su arma."
         else:
-            if mana >= 20:
-                mana -= 20
+            # --- ARREGLO DEL MANÁ ---
+            costo_mana = 10 # Lo bajamos a 10 para que puedas usar la habilidad más veces
+            if mana >= costo_mana:
+                mana -= costo_mana
                 stat = intel if clase in ['Mago', 'Maga'] else atq
                 dano = int((stat * 1.5) + random.randint(5, 15))
                 accion_texto = f"El Sujeto {nombre} usa su habilidad especial."
