@@ -73,7 +73,7 @@ async def narrar_con_ia(prompt_sistema, contexto):
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "llama3-8b-8192",
+        "model": "llama-3.1-8b-instant",
         "messages": [
             {"role": "system", "content": prompt_sistema},
             {"role": "user", "content": contexto}
