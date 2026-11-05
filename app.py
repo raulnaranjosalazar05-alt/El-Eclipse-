@@ -83,9 +83,9 @@ async def narrar_con_ia(prompt_sistema, contexto):
     if not HF_TOKEN: return None
     url = "https://router.huggingface.co/v1/chat/completions"
     headers = {"Authorization": f"Bearer {HF_TOKEN}", "Content-Type": "application/json"}
-    payload = {"model": "Qwen/Qwen2.5-7B-Instruct", "messages": [{"role": "system", "content": prompt_sistema}, {"role": "user", "content": contexto}], "max_tokens": 100, "temperature": 0.8}
+    payload = {"model": "meta-llama/Meta-Llama-3-8B-Instruct", "messages": [{"role": "system", "content": prompt_sistema}, {"role": "user", "content": contexto}], "max_tokens": 100, "temperature": 0.8}
     try:
-        timeout = aiohttp.ClientTimeout(total=30)
+        timeout = aiohttp.ClientTimeout(total=40)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(url, headers=headers, json=payload) as response:
                 if response.status == 200:
@@ -136,6 +136,9 @@ def obtener_menu_fijo():
     ], resize_keyboard=True)
 
 async def enviar_factura(update: Update, context: ContextTypes.DEFAULT_TYPE, item_nombre, item_precio, item_callback):
+    # BORRAMOS EL MENSAJE ANTERIOR PARA NO ACUMULAR
+    try: await update.callback_query.message.delete()
+    except: pass
     await context.bot.send_invoice(
         chat_id=update.effective_chat.id, title=f"El Eclipse - {item_nombre}",
         description=f"Compra de {item_nombre} en el Mercado del Sistema.", payload=item_callback,
@@ -161,7 +164,8 @@ async def pago_exitoso(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cur.execute("INSERT INTO inventario (id_telegram, item, tipo, stat_bonus, clase_original, cantidad) VALUES (%s, %s, 'arma', 5, %s, 1) ON CONFLICT (id_telegram, item) DO UPDATE SET cantidad = inventario.cantidad + 1", (user_id, nombre_arma, clase_original)); msg = f"✅ {nombre_arma} añadida."
     else: msg = "✅ Pago recibido."
     conn.commit(); cur.close(); conn.close()
-    await update.message.reply_text(msg)
+    keyboard = [[InlineKeyboardButton("🔙 Volver a la Tienda", callback_data='menu_tienda')]]
+    await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id; await limpiar_chat(update, context)
@@ -193,10 +197,10 @@ async def manejar_mensajes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif texto == "⚔️ Arena PvP":
         await limpiar_chat(update, context)
         conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
-        cur.execute("SELECT nivel, nombre FROM usuarios WHERE id_telegram = %s", (user_id,))
+        cur.execute("SELECT nivel, nombre FROM usuarios WHERE id_telegram = %s", (update.effective_user.id,))
         mi_nivel, mi_nombre = cur.fetchone()
         
-        cur.execute("SELECT id_telegram, nombre, nivel, clase FROM usuarios WHERE id_telegram != %s AND nivel BETWEEN %s AND %s ORDER BY RANDOM() LIMIT 1", (user_id, mi_nivel - 5, mi_nivel + 5))
+        cur.execute("SELECT id_telegram, nombre, nivel, clase FROM usuarios WHERE id_telegram != %s AND nivel BETWEEN %s AND %s ORDER BY RANDOM() LIMIT 1", (update.effective_user.id, mi_nivel - 5, mi_nivel + 5))
         rival = cur.fetchone()
         
         if not rival:
@@ -212,13 +216,14 @@ async def manejar_mensajes(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"💀 *Castigo:* El perdedor pierde 1 Energía y queda al 50% de Vida.\n\n"
             f"*El Sistema espera tu respuesta.*"
         )
-        keyboard = [[InlineKeyboardButton("⚔️ Aceptar Duelo", callback_data=f"aceptar_duelo_{user_id}")]]
+        keyboard = [[InlineKeyboardButton("⚔️ Aceptar Duelo", callback_data=f"aceptar_duelo_{update.effective_user.id}")]]
         
         try:
             await context.bot.send_message(chat_id=rival_id, text=texto_reto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             await update.message.reply_text(f"✅ Reto enviado a **{rival_nombre}** (Nivel {rival_nivel}).\n\n*Si ganas: +5 Estrellas ⭐. Si pierdes: -1 Energía y quedas al 50% de vida.*", reply_markup=obtener_menu_fijo(), parse_mode="Markdown")
         except:
             await update.message.reply_text("🌑 El rival no tiene el bot abierto.", reply_markup=obtener_menu_fijo())
+        
         cur.close(); conn.close(); return
     
     if texto in ["⚔️ Ejecutor", "🔮 Mago", "🛡️ Guardián", "🗡️ Asesino", "🏹 Arquero", "✨ Clérigo"]:
@@ -523,19 +528,29 @@ async def boton_monstruo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except: pass
 
 async def tienda(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id; await limpiar_chat(update, context)
+    query = update.callback_query
+    if query:
+        await query.answer()
+        msg = query.message
+    else:
+        msg = await update.message.reply_text("Cargando...")
+        
+    user_id = update.effective_user.id
     conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
     cur.execute("SELECT estrellas FROM usuarios WHERE id_telegram = %s", (user_id,))
     estrellas = cur.fetchone()[0]; cur.close(); conn.close()
+    
     keyboard = [
         [InlineKeyboardButton("🧪 POCIONES", callback_data='tienda_pociones')],
         [InlineKeyboardButton("⚔️ ARMERÍA", callback_data='tienda_armeria')],
         [InlineKeyboardButton("🎁 CAJAS MISTERIOSAS", callback_data='tienda_cajas')],
-        [InlineKeyboardButton("👑 BENDICIONES", callback_data='tienda_bendiciones')],
         [InlineKeyboardButton("🔙 VOLVER AL MENÚ", callback_data='volver_menu')]
     ]
-    msg = await update.message.reply_text(f"🛒 *MERCADO DEL SISTEMA*\n⭐ Estrellas: **{estrellas}**\n\nElige una categoría:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-    context.user_data['msg_tienda'] = msg.message_id
+    texto = f"🛒 *MERCADO DEL SISTEMA*\n⭐ Estrellas: **{estrellas}**\n\nElige una categoría:"
+    
+    try:
+        await msg.edit_text(texto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    except: pass
 
 async def tienda_pociones(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
@@ -575,24 +590,99 @@ async def tienda_cajas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("📦 Comprar Caja Común - 10⭐", callback_data='comprar_caja_comun')], [InlineKeyboardButton("🎁 Comprar Cofre Épico - 30⭐", callback_data='comprar_cofre_epico')], [InlineKeyboardButton("🔙 Volver", callback_data='menu_tienda')]]
     await query.edit_message_text(texto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
-async def tienda_bendiciones(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query; await query.answer()
-    await query.answer("👑 Las Bendiciones del Creador aún están bloqueadas.", show_alert=True)
-
 async def comprar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
+    try: await query.message.delete()
+    except: pass
+    
     item = query.data.replace('comprar_', '')
+    user_id = update.effective_user.id
+    
+    precios = {'pocion_vida': 5, 'pocion_mana': 5, 'elixir': 15, 'caja_comun': 10, 'cofre_epico': 30}
+    
     if item.startswith("arma_"):
-        partes = item.split("_"); nombre_arma = partes[1]; clase_original = partes[2]
+        partes = item.split("_")
+        nombre_arma = partes[1]
+        clase_original = partes[2]
         precio = 15
         for c, armas_lista in ARMAS.items():
             for a in armas_lista:
                 if a['nombre'] == nombre_arma:
-                    precio = a['precio']; break
-        await enviar_factura(update, context, nombre_arma, precio, item); return
+                    precio = a['precio']
+                    break
+        item_nombre = nombre_arma
+        es_arma = True
+    else:
+        precio = precios.get(item, 0)
+        item_nombre = item.replace('_', ' ').title()
+        es_arma = False
+
+    conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
+    cur.execute("SELECT estrellas FROM usuarios WHERE id_telegram = %s", (user_id,))
+    estrellas_virtuales = cur.fetchone()[0]
+    
+    if estrellas_virtuales < precio:
+        cur.close(); conn.close()
+        keyboard = [
+            [InlineKeyboardButton("⭐ Pagar con Telegram (Reales)", callback_data=f"pago_real_{item}")],
+            [InlineKeyboardButton("🔙 Volver a la Tienda", callback_data='menu_tienda')]
+        ]
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"❌ *Estrellas del Sistema insuficientes.*\n\nNecesitas **{precio}⭐** para comprar **{item_nombre}**.\nSolo tienes **{estrellas_virtuales}⭐** en tu cuenta.\n\n¿Quieres usar Estrellas Reales de Telegram para pagar?",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+        return
+
+    cur.execute("UPDATE usuarios SET estrellas = estrellas - %s WHERE id_telegram = %s", (precio, user_id))
+    
+    if es_arma:
+        cur.execute("INSERT INTO inventario (id_telegram, item, tipo, stat_bonus, clase_original, cantidad) VALUES (%s, %s, 'arma', 5, %s, 1) ON CONFLICT (id_telegram, item) DO UPDATE SET cantidad = inventario.cantidad + 1", (user_id, nombre_arma, clase_original))
+        msg = f"✅ Has comprado **{nombre_arma}** con Estrellas del Sistema."
+    elif item == 'pocion_vida':
+        cur.execute("INSERT INTO inventario (id_telegram, item, tipo, cantidad) VALUES (%s, 'Poción de Vida', 'pocion', 1) ON CONFLICT (id_telegram, item) DO UPDATE SET cantidad = inventario.cantidad + 1", (user_id,))
+        msg = "✅ Has comprado **Poción de Vida**."
+    elif item == 'pocion_mana':
+        cur.execute("INSERT INTO inventario (id_telegram, item, tipo, cantidad) VALUES (%s, 'Poción de Maná', 'pocion', 1) ON CONFLICT (id_telegram, item) DO UPDATE SET cantidad = inventario.cantidad + 1", (user_id,))
+        msg = "✅ Has comprado **Poción de Maná**."
+    elif item == 'elixir':
+        cur.execute("INSERT INTO inventario (id_telegram, item, tipo, cantidad) VALUES (%s, 'Elixir Completo', 'pocion', 1) ON CONFLICT (id_telegram, item) DO UPDATE SET cantidad = inventario.cantidad + 1", (user_id,))
+        msg = "✅ Has comprado **Elixir Completo**."
+    elif item == 'caja_comun':
+        cur.execute("INSERT INTO inventario (id_telegram, item, tipo, cantidad) VALUES (%s, 'Caja Común', 'caja', 1) ON CONFLICT (id_telegram, item) DO UPDATE SET cantidad = inventario.cantidad + 1", (user_id,))
+        msg = "✅ Has comprado **Caja Común**."
+    elif item == 'cofre_epico':
+        cur.execute("INSERT INTO inventario (id_telegram, item, tipo, cantidad) VALUES (%s, 'Cofre Épico', 'caja', 1) ON CONFLICT (id_telegram, item) DO UPDATE SET cantidad = inventario.cantidad + 1", (user_id,))
+        msg = "✅ Has comprado **Cofre Épico**."
+    
+    conn.commit(); cur.close(); conn.close()
+    
+    keyboard = [[InlineKeyboardButton("🔙 Volver a la Tienda", callback_data='menu_tienda')]]
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+async def pago_real(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query; await query.answer()
+    try: await query.message.delete()
+    except: pass
+    
+    item = query.data.replace('pago_real_', '')
     precios = {'pocion_vida': 5, 'pocion_mana': 5, 'elixir': 15, 'caja_comun': 10, 'cofre_epico': 30}
-    precio = precios.get(item, 0)
-    await enviar_factura(update, context, item.replace('_', ' ').title(), precio, item)
+    if item.startswith("arma_"):
+        partes = item.split("_")
+        nombre_arma = partes[1]
+        precio = 15
+        for c, armas_lista in ARMAS.items():
+            for a in armas_lista:
+                if a['nombre'] == nombre_arma:
+                    precio = a['precio']
+                    break
+        item_nombre = nombre_arma
+    else:
+        precio = precios.get(item, 0)
+        item_nombre = item.replace('_', ' ').title()
+
+    await enviar_factura(update, context, item_nombre, precio, item)
 
 async def inventario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id; await limpiar_chat(update, context)
@@ -765,8 +855,8 @@ def main():
     app.add_handler(CallbackQueryHandler(tienda_armeria, pattern='^tienda_armeria$'))
     app.add_handler(CallbackQueryHandler(armeria_categoria, pattern='^armeria_'))
     app.add_handler(CallbackQueryHandler(tienda_cajas, pattern='^tienda_cajas$'))
-    app.add_handler(CallbackQueryHandler(tienda_bendiciones, pattern='^tienda_bendiciones$'))
     app.add_handler(CallbackQueryHandler(comprar, pattern='^comprar_'))
+    app.add_handler(CallbackQueryHandler(pago_real, pattern='^pago_real_'))
     app.add_handler(CallbackQueryHandler(equipar_arma, pattern='^equipar_'))
     app.add_handler(CallbackQueryHandler(volver_menu, pattern='^volver_menu$'))
     app.add_handler(CallbackQueryHandler(tienda, pattern='^menu_tienda$'))
