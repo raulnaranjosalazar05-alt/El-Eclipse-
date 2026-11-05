@@ -71,7 +71,10 @@ def init_db():
         cur.execute("DROP TABLE IF EXISTS jefe_supremo;")
         cur.execute("CREATE TABLE IF NOT EXISTS jefe_supremo (id INT PRIMARY KEY, nombre VARCHAR(100), vida INT, vida_max INT, activo BOOLEAN);")
         cur.execute("DROP TABLE IF EXISTS leyendas;")
-        cur.execute("CREATE TABLE IF NOT EXISTS leyendas (temporada INT, nombre VARCHAR(50), clase VARCHAR(20), nivel INT);")
+        cur.execute("CREATE TABLE IF NOT EXISTS leyendas (temporada INT, nombre VARCHAR(50), clase VARCHAR(20), logro TEXT);")
+        cur.execute("DROP TABLE IF EXISTS config;")
+        cur.execute("CREATE TABLE IF NOT EXISTS config (clave VARCHAR(20) PRIMARY KEY, valor INT);")
+        cur.execute("INSERT INTO config (clave, valor) VALUES ('temporada', 1) ON CONFLICT (clave) DO NOTHING;")
         conn.commit(); cur.close(); conn.close()
         print("✅ Base de datos lista.")
     except Exception as e: print(f"❌ ERROR BD: {e}")
@@ -241,6 +244,11 @@ async def manejar_mensajes(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"⭐ Has regalado {cantidad} Estrellas al ID {target_id}.")
         except: await update.message.reply_text("❌ Formato incorrecto.", parse_mode="Markdown")
         context.user_data['estado'] = 'en_menu'; return
+    if estado == 'en_combate' and texto:
+        context.user_data['frase_epica'] = texto
+        try: await update.message.delete()
+        except: pass
+        return
 
 async def boton_sexo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
@@ -265,33 +273,49 @@ async def procesar_clase_final(update: Update, context: ContextTypes.DEFAULT_TYP
     s = stats.get(clase_base, stats['ejecutor'])
     try: await update.message.delete()
     except: pass
-    icono_sexo = "♂️" if sexo_elegido == 'M' else "♀️"
-    texto_final = (f"✅ *REGISTRO COMPLETADO*\n\n👤 Sujeto: **{nombre_elegido}**\n⚔️ Clase: **{clase_final}**\n{icono_sexo} Sexo: **{'Masculino' if sexo_elegido == 'M' else 'Femenino'}**\n"
-        f"🏅 Rango: **E** | 📊 Nivel: **1**\n\n❤️ Vida: {s['vida']} | 🔮 Maná: {s['mana']}\n⚔️ ATQ: {s['atq']} | 💨 MOV: {s['mov']}\n🧠 INT: {s['intel']} | 🛡️ RES: {s['res']} | 🎯 TAC: {s['tac']}\n\n🌑 *El Sistema te da la bienvenida.*")
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=texto_final, parse_mode="Markdown")
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="​", reply_markup=obtener_menu_fijo())
-    context.user_data['estado'] = 'en_menu'
+
+    msg_trans = await context.bot.send_message(chat_id=update.effective_chat.id, text="🔮 *El Oráculo de Pollinations está forjando tu registro visual...*", parse_mode="Markdown")
+
     async def guardar_y_generar():
         conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
-        msg_trans = await context.bot.send_message(chat_id=update.effective_chat.id, text="🔮 *El Oráculo de Pollinations te está escaneando...*", parse_mode="Markdown")
-        prompt_historia = f"Eres 'El Sistema'. Escribe una historia de origen épica y oscura para un personaje llamado {nombre_elegido}, que es un {clase_final}."
+        
+        prompt_historia = (
+            f"Eres 'El Sistema', una entidad fría y cruel. Escribe una historia de origen épica y oscura (máximo 3 líneas) "
+            f"para un personaje llamado {nombre_elegido}, que es un {clase_final} en un mundo post-apocalíptico llamado 'El Eclipse'. "
+            f"Termina con una frase del Sistema entre corchetes."
+        )
         historia_ia = await narrar_con_ia(prompt_historia, f"Genera la historia para {nombre_elegido}.")
-        historia_final = historia_ia if historia_ia else f"El día que el cielo se tiñó de violeta, {nombre_elegido} despertó con el poder de un {clase_final}."
+        historia_final = historia_ia if historia_ia else f"El día que el cielo se tiñó de violeta, {nombre_elegido} despertó con el poder de un {clase_final}. [Sistema: Otro más en la lista.]"
+        
         cur.execute("INSERT INTO usuarios (id_telegram, nombre, clase, sexo, rango, historia, vida, vida_max, mana, mana_max, atq, mov, intel, res, tac, estrellas, maestro_id) VALUES (%s, %s, %s, %s, 'E', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, %s) ON CONFLICT (id_telegram) DO NOTHING", 
                     (user_id, nombre_elegido, clase_final, sexo_elegido, historia_final, s['vida'], s['vida'], s['mana'], s['mana'], s['atq'], s['mov'], s['intel'], s['res'], s['tac'], maestro_id))
         conn.commit(); cur.close(); conn.close()
+        
         genero_ingles = "man" if sexo_elegido == 'M' else "woman"
         detalles_clase = {'ejecutor': "massive greatsword, dark heavy armor", 'mago': "floating crystal staff, dark robes", 'guardian': "massive spiked armor, giant shield", 'asesino': "dark hooded cloak, dual daggers", 'arquero': "glowing energy bow", 'clerigo': "ornate dark robes, glowing holy symbol"}
         detalle = detalles_clase.get(clase_base, "dark fantasy armor")
         prompt = f"{genero_ingles} {clase_final}, {detalle}"
         image_bytes = await generar_imagen_sistema(prompt, es_monstruo=False)
-        texto_foto = (f"🌑 *REGISTRO VISUAL - FACCIÓN POLLINATIONS*\n\n👤 Sujeto: **{nombre_elegido}**\n\n📖 *Historia:*\n{historia_final}")
-        if image_bytes:
-            try: await context.bot.send_photo(chat_id=update.effective_chat.id, photo=image_bytes, caption=texto_foto, parse_mode="Markdown")
-            except: pass
+
+        texto_final = (
+            f"🌑 *REGISTRO COMPLETADO*\n\n👤 Sujeto: **{nombre_elegido}**\n⚔️ Clase: **{clase_final}**\n🏅 Rango: **E** | 📊 Nivel: **1**\n\n"
+            f"📖 *Historia:*\n{historia_final}\n\n❤️ Vida: {s['vida']} | 🔮 Maná: {s['mana']}\n⚔️ ATQ: {s['atq']} | 💨 MOV: {s['mov']}\n"
+            f"🧠 INT: {s['intel']} | 🛡️ RES: {s['res']} | 🎯 TAC: {s['tac']}"
+        )
+
         try: await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_trans.message_id)
         except: pass
+
+        if image_bytes:
+            try: await context.bot.send_photo(chat_id=update.effective_chat.id, photo=image_bytes, caption=texto_final, parse_mode="Markdown")
+            except: pass
+        else:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=texto_final, parse_mode="Markdown")
+
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="🌑 *El Sistema está listo.*", reply_markup=obtener_menu_fijo(), parse_mode="Markdown")
+
     asyncio.create_task(guardar_y_generar())
+    context.user_data['estado'] = 'en_menu'
 
 async def perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id; await limpiar_chat(update, context) 
@@ -361,7 +385,6 @@ async def portal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cur_img.close(); conn_img.close()
         try: await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=msg_trans.message_id)
         except: pass
-        # --- BOTONES IN-LINE (Pegados al mensaje) ---
         keyboard = [[InlineKeyboardButton("⚔️ Atacar", callback_data='pvp_atacar_monstruo'), InlineKeyboardButton("💨 Esquivar", callback_data='pvp_esquivar_monstruo')], [InlineKeyboardButton("🔮 Habilidad", callback_data='pvp_habilidad_monstruo'), InlineKeyboardButton("🏃 Huir", callback_data='pvp_huir_monstruo')]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         titulo = "👑 *JEFE FINAL*" if es_jefe else "🩸 *PORTAL ABIERTO*"
@@ -437,9 +460,18 @@ async def boton_monstruo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if hp_monstruo > 0:
                 dano_recibido = monstruo['atk'] + random.randint(1, 5); vida -= dano_recibido; result_texto += f" {dano_recibido} de daño recibido."
     if vida < 0: vida = 0
+    
+    prompt_sistema = (
+        "Eres 'El Sistema', una entidad fría, calculadora y sádica de un RPG oscuro. "
+        "Narra la acción del jugador y el contraataque del monstruo en un párrafo corto (máximo 3 líneas). "
+        "Describe el dolor, la sangre y el sonido de los huesos. No seas amable. "
+        "Habla como si el jugador fuera un insecto. Si el jugador falla, búrlate de él. "
+        "Termina siempre con una frase corta del Sistema entre corchetes."
+    )
     contexto_ia = f"Acción: {accion_texto}. Resultado: {result_texto}."
-    narracion_epica = await narrar_con_ia("Eres 'El Sistema', frío y brutal. Narra la acción en 3 líneas.", contexto_ia)
-    if not narracion_epica: narracion_epica = "El Sistema registra el impacto en silencio."
+    narracion_epica = await narrar_con_ia(prompt_sistema, contexto_ia)
+    if not narracion_epica: narracion_epica = "El Sistema registra el impacto en silencio. [Sistema: Patético.]"
+    
     if hp_monstruo <= 0:
         if es_jefe:
             narracion_epica += f"\n\n👑 **HAS DERROTADO AL JEFE FINAL.**\nEl Sistema te permite ascender al siguiente Rango."
@@ -539,7 +571,7 @@ async def armeria_categoria(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def tienda_cajas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
-    texto = ("🎁 *CAJAS MISTERIOSAS*\n\n• *Caja Común (10⭐):* 70% Poción | 30% Arma Común.\n• *Cofre Épico (30⭐):* 50% Arma Rara | 50% Elixir.")
+    texto = ("🎁 *CAJAS MISTERIOSAS*\n\n• *Caja Común (10⭐):* 80% Poción | 20% Estrellas de vuelta.\n• *Cofre Épico (30⭐):* 100% Elixir Completo (vale 15⭐).")
     keyboard = [[InlineKeyboardButton("📦 Comprar Caja Común - 10⭐", callback_data='comprar_caja_comun')], [InlineKeyboardButton("🎁 Comprar Cofre Épico - 30⭐", callback_data='comprar_cofre_epico')], [InlineKeyboardButton("🔙 Volver", callback_data='menu_tienda')]]
     await query.edit_message_text(texto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
@@ -629,14 +661,40 @@ async def boton_creador(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("⚠️ ¿Estás seguro de que quieres borrar a TODOS los jugadores y empezar la Temporada 2?", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     elif query.data == 'admin_reset_confirm':
         conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
-        cur.execute("SELECT nombre, clase, nivel FROM usuarios ORDER BY nivel DESC, exp DESC LIMIT 1")
-        top1 = cur.fetchone()
-        if top1: cur.execute("INSERT INTO leyendas (temporada, nombre, clase, nivel) VALUES (1, %s, %s, %s)", (top1[0], top1[1], top1[2]))
-        cur.execute("TRUNCATE TABLE usuarios;"); cur.execute("TRUNCATE TABLE derrotados;"); cur.execute("UPDATE jefe_supremo SET activo = FALSE")
+        cur.execute("SELECT valor FROM config WHERE clave = 'temporada'")
+        temporada_actual = cur.fetchone()[0]
+        
+        cur.execute("SELECT nombre, clase, nivel FROM usuarios ORDER BY nivel DESC, exp DESC LIMIT 3")
+        top3 = cur.fetchall()
+        for i, user in enumerate(top3):
+            logro = f"Top {i+1} de la Temporada {temporada_actual}"
+            cur.execute("INSERT INTO leyendas (temporada, nombre, clase, logro) VALUES (%s, %s, %s, %s)", (temporada_actual, user[0], user[1], logro))
+        
+        cur.execute("SELECT id_telegram FROM usuarios ORDER BY nivel DESC, exp DESC LIMIT 3")
+        ids_top3 = cur.fetchall()
+        if len(ids_top3) >= 1: cur.execute("UPDATE usuarios SET estrellas = estrellas + 50 WHERE id_telegram = %s", (ids_top3[0][0],))
+        if len(ids_top3) >= 2: cur.execute("UPDATE usuarios SET estrellas = estrellas + 30 WHERE id_telegram = %s", (ids_top3[1][0],))
+        if len(ids_top3) >= 3: cur.execute("UPDATE usuarios SET estrellas = estrellas + 20 WHERE id_telegram = %s", (ids_top3[2][0],))
+
+        cur.execute("INSERT INTO inventario (id_telegram, item, tipo, cantidad) SELECT id_telegram, 'Caja Común', 'caja', 1 FROM usuarios ON CONFLICT (id_telegram, item) DO UPDATE SET cantidad = inventario.cantidad + 1")
+        
+        cur.execute("TRUNCATE TABLE usuarios;")
+        cur.execute("TRUNCATE TABLE derrotados;")
+        cur.execute("UPDATE jefe_supremo SET activo = FALSE")
+        cur.execute("UPDATE config SET valor = valor + 1 WHERE clave = 'temporada'")
+        
         conn.commit(); cur.close(); conn.close()
-        try: await context.bot.send_message(chat_id=ID_GRUPO, text="🌑 *EL ECLIPSE HA TERMINADO*\n\nEl Jefe Supremo ha caído. Los registros han sido borrados. La Temporada 2 comienza ahora.", parse_mode="Markdown")
+        
+        nueva_temp = temporada_actual + 1
+        try: 
+            await context.bot.send_message(
+                chat_id=ID_GRUPO, 
+                text=f"🌑 *EL ECLIPSE HA TERMINADO*\n\nEl Jefe Supremo ha caído. Los registros han sido borrados.\n\nLa Temporada {nueva_temp} comienza ahora. Todos los Cazadores han recibido una Caja Misteriosa de despedida.", 
+                parse_mode="Markdown"
+            )
         except: pass
-        await query.edit_message_text("✅ Temporada reiniciada.")
+        
+        await query.edit_message_text(f"✅ Temporada {nueva_temp} reiniciada y recompensas entregadas.")
     elif query.data == 'admin_regalar_estrellas':
         await query.edit_message_text("Escribe ID y cantidad (ej: `6985217869 100`).", parse_mode="Markdown")
         context.user_data['estado'] = 'regalar_estrellas'
@@ -665,6 +723,22 @@ async def atacar_jefe_boton(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if nueva_vida_jefe <= 0:
         texto += "💀 **¡EL JEFE SUPREMO HA SIDO ERRADICADO!**\nEl Eclipse ha terminado. Prepárense para el reset."
         keyboard = []
+        
+        conn = psycopg2.connect(DATABASE_URL, sslmode='require'); cur = conn.cursor()
+        cur.execute("SELECT nombre FROM usuarios WHERE id_telegram = %s", (user_id,))
+        nombre_mvp = cur.fetchone()[0]
+        
+        cur.execute("INSERT INTO leyendas (temporada, nombre, clase, logro) VALUES (1, %s, 'Cazador', 'Asestó el golpe final al Jefe Supremo')", (nombre_mvp,))
+        cur.execute("UPDATE usuarios SET estrellas = estrellas + 100 WHERE id_telegram = %s", (user_id,))
+        conn.commit(); cur.close(); conn.close()
+        
+        try:
+            await context.bot.send_message(chat_id=user_id, text=f"👑 *EL SISTEMA TE RECONOCE*\n\nHas asestado el golpe final al Jefe Supremo. La gloria es tuya.\n\n⭐ *Recompensa:* +100 Estrellas virtuales.\n🏆 *Título:* MVP de la Temporada 1.\n\n*El Creador se contactará contigo para tu regalo real.*", parse_mode="Markdown")
+        except: pass
+        
+        try:
+            await context.bot.send_message(chat_id=ID_GRUPO, text=f"👑 *EL JEFE SUPREMO HA CAÍDO*\n\nEl golpe final fue asestado por **{nombre_mvp}**.\nEl Sistema lo reconoce como el MVP de la temporada.\n\n*Prepárense. El mundo se reiniciará pronto.*", parse_mode="Markdown")
+        except: pass
     else: texto += "*El Sistema registra tu ataque. Sigue peleando.*"
     await query.edit_message_text(texto, reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None, parse_mode="Markdown")
 
