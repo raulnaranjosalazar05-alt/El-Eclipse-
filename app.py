@@ -6,7 +6,7 @@ import random
 import asyncio
 import datetime
 import aiohttp
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from aiohttp import web
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler, PreCheckoutQueryHandler
 
@@ -18,6 +18,9 @@ PORT = int(os.environ.get("PORT", 8080))
 ID_CREADOR = 6985217869
 ID_GRUPO = -1004347230537
 LINK_GRUPO = "https://t.me/ElRefugio_Eclipse"
+
+# IMPORTANTE: Render te da una URL fija. Cámbiala aquí si tu URL cambia.
+RENDER_URL = "https://el-eclipse.onrender.com"
 
 GRUPO_A = ["Ejecutor", "Asesino", "Arquero"]
 GRUPO_B = ["Mago", "Guardián", "Clérigo"]
@@ -49,7 +52,7 @@ def init_db():
     try:
         conn = psycopg2.connect(DATABASE_URL, sslmode='require')
         cur = conn.cursor()
-        cur.execute("DROP TABLE IF EXISTS usuarios;")
+        # Eliminamos los DROP para no borrar datos en cada reinicio
         cur.execute("""
             CREATE TABLE IF NOT EXISTS usuarios (
                 id_telegram BIGINT PRIMARY KEY, nombre VARCHAR(50), clase VARCHAR(20), sexo VARCHAR(10),
@@ -61,19 +64,12 @@ def init_db():
                 arma_equipada VARCHAR(50) DEFAULT 'Ninguna', maestro_id BIGINT DEFAULT NULL
             )
         """)
-        cur.execute("DROP TABLE IF EXISTS inventario;")
         cur.execute("CREATE TABLE IF NOT EXISTS inventario (id_telegram BIGINT, item VARCHAR(50), tipo VARCHAR(20), stat_bonus INT, clase_original VARCHAR(20), cantidad INT DEFAULT 1, PRIMARY KEY (id_telegram, item));")
-        cur.execute("DROP TABLE IF EXISTS derrotados;")
         cur.execute("CREATE TABLE IF NOT EXISTS derrotados (id_telegram BIGINT, nombre VARCHAR(100), PRIMARY KEY (id_telegram, nombre));")
-        cur.execute("DROP TABLE IF EXISTS bestiario_imagenes;")
         cur.execute("CREATE TABLE IF NOT EXISTS bestiario_imagenes (nombre VARCHAR(100) PRIMARY KEY, imagen BYTEA);")
-        cur.execute("DROP TABLE IF EXISTS pagos;")
         cur.execute("CREATE TABLE IF NOT EXISTS pagos (id SERIAL PRIMARY KEY, id_telegram BIGINT, monto INT, fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP);")
-        cur.execute("DROP TABLE IF EXISTS jefe_supremo;")
         cur.execute("CREATE TABLE IF NOT EXISTS jefe_supremo (id INT PRIMARY KEY, nombre VARCHAR(100), vida INT, vida_max INT, activo BOOLEAN);")
-        cur.execute("DROP TABLE IF EXISTS leyendas;")
         cur.execute("CREATE TABLE IF NOT EXISTS leyendas (temporada INT, nombre VARCHAR(50), clase VARCHAR(20), logro TEXT);")
-        cur.execute("DROP TABLE IF EXISTS config;")
         cur.execute("CREATE TABLE IF NOT EXISTS config (clave VARCHAR(20) PRIMARY KEY, valor INT);")
         cur.execute("INSERT INTO config (clave, valor) VALUES ('temporada', 1) ON CONFLICT (clave) DO NOTHING;")
         conn.commit(); cur.close(); conn.close()
@@ -854,15 +850,30 @@ async def atacar_jefe_boton(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else: texto += "*El Sistema registra tu ataque. Sigue peleando.*"
     await query.edit_message_text(texto, reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None, parse_mode="Markdown")
 
-class WebServer(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200); self.end_headers(); self.wfile.write(b"El Sistema esta vivo.")
+# ==========================================
+# SERVIDOR WEBHOOK
+# ==========================================
+async def webhook_handler(request):
+    try:
+        data = await request.json()
+        update = Update.de_json(data, bot=request.app['bot'])
+        await request.app['app'].process_update(update)
+        return web.Response(text="OK")
+    except Exception as e:
+        print(f"Error en webhook: {e}")
+        return web.Response(text="OK")
 
-def main():
-    server = HTTPServer(("0.0.0.0", PORT), WebServer)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+async def health_handler(request):
+    return web.Response(text="El Sistema esta vivo.")
+
+async def main():
     init_db()
+    
     app = Application.builder().token(TOKEN).build()
+    
+    # Configurar webhook
+    await app.bot.set_webhook(url=f"{RENDER_URL}/{TOKEN}", drop_pending_updates=True)
+    
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("creador", creador))
     app.add_handler(CommandHandler("atacar_jefe", atacar_jefe_boton))
@@ -882,8 +893,32 @@ def main():
     app.add_handler(CallbackQueryHandler(equipar_arma, pattern='^equipar_'))
     app.add_handler(CallbackQueryHandler(volver_menu, pattern='^volver_menu$'))
     app.add_handler(CallbackQueryHandler(tienda, pattern='^menu_tienda$'))
-    print("El Sistema ha despertado. Escuchando...")
-    app.run_polling(drop_pending_updates=True)
+
+    # Configurar servidor aiohttp
+    web_app = web.Application()
+    web_app['bot'] = app.bot
+    web_app['app'] = app
+    web_app.router.add_get('/', health_handler)
+    web_app.router.add_post(f'/{TOKEN}', webhook_handler)
+    
+    # Iniciar la aplicación de Telegram en modo "inicializado"
+    await app.initialize()
+    await app.start()
+    
+    # Iniciar servidor web
+    runner = web.AppRunner(web_app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', PORT)
+    await site.start()
+    
+    print(f"🌑 El Sistema ha despertado en Webhook. Puerto {PORT}")
+    
+    # Mantener el bucle
+    stop_signal = asyncio.Event()
+    await stop_signal.wait()
 
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        pass
