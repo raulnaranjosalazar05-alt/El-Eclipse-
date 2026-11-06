@@ -12,7 +12,8 @@ from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandl
 
 TOKEN = os.environ.get("TOKEN")
 DATABASE_URL = os.environ.get("DATABASE_URL")
-HF_TOKEN = os.environ.get("HF_TOKEN")
+CLOUDFLARE_API_TOKEN = os.environ.get("CLOUDFLARE_API_TOKEN")
+CLOUDFLARE_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
 PORT = int(os.environ.get("PORT", 8080))
 ID_CREADOR = 6985217869
 ID_GRUPO = -1004347230537
@@ -80,24 +81,46 @@ def init_db():
     except Exception as e: print(f"❌ ERROR BD: {e}")
 
 async def narrar_con_ia(prompt_sistema, contexto):
-    if not HF_TOKEN: return None
-    url = "https://router.huggingface.co/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {HF_TOKEN}", "Content-Type": "application/json"}
-    payload = {"model": "meta-llama/Meta-Llama-3-8B-Instruct", "messages": [{"role": "system", "content": prompt_sistema}, {"role": "user", "content": contexto}], "max_tokens": 100, "temperature": 0.8}
+    if not CLOUDFLARE_API_TOKEN or not CLOUDFLARE_ACCOUNT_ID:
+        print("⚠️ Faltan credenciales de Cloudflare en Render.")
+        return None
+    
+    url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/@cf/meta/llama-3-8b-instruct"
+    
+    headers = {
+        "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "messages": [
+            {"role": "system", "content": prompt_sistema},
+            {"role": "user", "content": contexto}
+        ],
+        "max_tokens": 120,
+        "temperature": 0.8
+    }
+    
     try:
-        timeout = aiohttp.ClientTimeout(total=40)
+        timeout = aiohttp.ClientTimeout(total=30)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(url, headers=headers, json=payload) as response:
                 if response.status == 200:
                     data = await response.json()
-                    return data['choices'][0]['message']['content'].strip().replace('*', '').replace('_', '')
-                return None
-    except: return None
+                    texto = data.get('result', {}).get('response', '')
+                    return texto.strip().replace('*', '').replace('_', '')
+                else:
+                    error_text = await response.text()
+                    print(f"❌ Error Cloudflare IA: {response.status} - {error_text}")
+                    return None
+    except Exception as e:
+        print(f"❌ Error de conexión con Cloudflare: {e}")
+        return None
 
 async def generar_imagen_sistema(prompt, es_monstruo=False):
     if es_monstruo: prompt_mejorado = f"epic fantasy monster concept art, {prompt}, glowing eyes, cinematic lighting, masterpiece"
     else: prompt_mejorado = f"anime style portrait of a {prompt}, beautiful detailed eyes, dark fantasy aesthetic, masterpiece"
-    url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(prompt_mejorado)}?width=512&height=512&nologo=false&model=turbo"
+    url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(prompt_mejorado)}?width=512&height=512&nologo=true&model=turbo"
     try:
         timeout = aiohttp.ClientTimeout(total=45)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -136,7 +159,6 @@ def obtener_menu_fijo():
     ], resize_keyboard=True)
 
 async def enviar_factura(update: Update, context: ContextTypes.DEFAULT_TYPE, item_nombre, item_precio, item_callback):
-    # BORRAMOS EL MENSAJE ANTERIOR PARA NO ACUMULAR
     try: await update.callback_query.message.delete()
     except: pass
     await context.bot.send_invoice(
